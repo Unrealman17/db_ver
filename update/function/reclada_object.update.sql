@@ -187,7 +187,7 @@ BEGIN
                 on tt.id = v.id
 	            WHERE v.obj_id = _obj_id;
 
-    PERFORM reclada.update_unique_object(ARRAY[_obj_id]);
+    --PERFORM reclada.update_unique_object(ARRAY[_obj_id]);
 
     PERFORM reclada_object.object_insert
             (

@@ -290,7 +290,7 @@ BEGIN
         
         SELECT (vod.table #> '{orderRow}') AS orderRow
             FROM reclada.v_object_display vod
-            WHERE vod.class_guid = (reclada_object.get_schema (_class)#>>'{GUID}')::uuid
+            WHERE vod.class_guid = (SELECT(reclada_object.get_schema (_class)#>>'{GUID}')::uuid)
             INTO _order_row;
         IF _order_row IS NOT NULL THEN     
             SELECT jsonb_agg (

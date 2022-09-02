@@ -19,9 +19,9 @@ BEGIN
     WHERE for_class = _class_name
         INTO _parent_field;
 
-    _parent_guid = (_data->>'parentGUID')::uuid;
+    _parent_guid = reclada.try_cast_uuid(_data->>'parentGUID');
     IF (_parent_guid IS NULL AND _parent_field IS NOT NULL) THEN
-        _parent_guid = _data->'attributes'->>_parent_field;
+        _parent_guid = reclada.try_cast_uuid(_data->'attributes'->>_parent_field);
     END IF;
 
     RETURN QUERY
