@@ -1,5 +1,5 @@
--- version = 2
--- 2022-09-05 09:19:13.688488--
+-- version = 1
+-- 2022-09-05 09:36:28.748101--
 -- PostgreSQL database dump
 --
 
@@ -1261,6 +1261,279 @@ BEGIN
     perform reclada.raise_notice(msg);
 END
 $$;
+
+
+--
+-- Name: _validate_json_schema_type(text, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public._validate_json_schema_type(type text, data jsonb) RETURNS boolean
+    LANGUAGE plpgsql IMMUTABLE
+    AS $$
+BEGIN
+  IF type = 'integer' THEN
+    IF jsonb_typeof(data) != 'number' THEN
+      RETURN false;
+    END IF;
+    IF trunc(data::text::numeric) != data::text::numeric THEN
+      RETURN false;
+    END IF;
+  ELSE
+    IF type != jsonb_typeof(data) THEN
+      RETURN false;
+    END IF;
+  END IF;
+  RETURN true;
+END;
+$$;
+
+
+--
+-- Name: validate_json_schema(jsonb, jsonb, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_json_schema(schema jsonb, data jsonb, root_schema jsonb DEFAULT NULL::jsonb) RETURNS boolean
+    LANGUAGE plpgsql IMMUTABLE
+    AS $_$
+DECLARE
+  prop text;
+  item jsonb;
+  path text[];
+  types text[];
+  pattern text;
+  props text[];
+BEGIN
+  IF root_schema IS NULL THEN
+    root_schema = schema;
+  END IF;
+
+  IF schema ? 'type' THEN
+    IF jsonb_typeof(schema->'type') = 'array' THEN
+      types = ARRAY(SELECT jsonb_array_elements_text(schema->'type'));
+    ELSE
+      types = ARRAY[schema->>'type'];
+    END IF;
+    IF (SELECT NOT bool_or(public._validate_json_schema_type(type, data)) FROM unnest(types) type) THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'properties' THEN
+    FOR prop IN SELECT jsonb_object_keys(schema->'properties') LOOP
+      IF data ? prop AND NOT public.validate_json_schema(schema->'properties'->prop, data->prop, root_schema) THEN
+        RETURN false;
+      END IF;
+    END LOOP;
+  END IF;
+
+  IF schema ? 'required' AND jsonb_typeof(data) = 'object' THEN
+    IF NOT ARRAY(SELECT jsonb_object_keys(data)) @>
+           ARRAY(SELECT jsonb_array_elements_text(schema->'required')) THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'items' AND jsonb_typeof(data) = 'array' THEN
+    IF jsonb_typeof(schema->'items') = 'object' THEN
+      FOR item IN SELECT jsonb_array_elements(data) LOOP
+        IF NOT public.validate_json_schema(schema->'items', item, root_schema) THEN
+          RETURN false;
+        END IF;
+      END LOOP;
+    ELSE
+      IF NOT (
+        SELECT bool_and(i > jsonb_array_length(schema->'items') OR public.validate_json_schema(schema->'items'->(i::int - 1), elem, root_schema))
+        FROM jsonb_array_elements(data) WITH ORDINALITY AS t(elem, i)
+      ) THEN
+        RETURN false;
+      END IF;
+    END IF;
+  END IF;
+
+  IF jsonb_typeof(schema->'additionalItems') = 'boolean' and NOT (schema->'additionalItems')::text::boolean AND jsonb_typeof(schema->'items') = 'array' THEN
+    IF jsonb_array_length(data) > jsonb_array_length(schema->'items') THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF jsonb_typeof(schema->'additionalItems') = 'object' THEN
+    IF NOT (
+        SELECT bool_and(public.validate_json_schema(schema->'additionalItems', elem, root_schema))
+        FROM jsonb_array_elements(data) WITH ORDINALITY AS t(elem, i)
+        WHERE i > jsonb_array_length(schema->'items')
+      ) THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'minimum' AND jsonb_typeof(data) = 'number' THEN
+    IF data::text::numeric < (schema->>'minimum')::numeric THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'maximum' AND jsonb_typeof(data) = 'number' THEN
+    IF data::text::numeric > (schema->>'maximum')::numeric THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF COALESCE((schema->'exclusiveMinimum')::text::bool, FALSE) THEN
+    IF data::text::numeric = (schema->>'minimum')::numeric THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF COALESCE((schema->'exclusiveMaximum')::text::bool, FALSE) THEN
+    IF data::text::numeric = (schema->>'maximum')::numeric THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'anyOf' THEN
+    IF NOT (SELECT bool_or(public.validate_json_schema(sub_schema, data, root_schema)) FROM jsonb_array_elements(schema->'anyOf') sub_schema) THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'allOf' THEN
+    IF NOT (SELECT bool_and(public.validate_json_schema(sub_schema, data, root_schema)) FROM jsonb_array_elements(schema->'allOf') sub_schema) THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'oneOf' THEN
+    IF 1 != (SELECT COUNT(*) FROM jsonb_array_elements(schema->'oneOf') sub_schema WHERE public.validate_json_schema(sub_schema, data, root_schema)) THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF COALESCE((schema->'uniqueItems')::text::boolean, false) THEN
+    IF (SELECT COUNT(*) FROM jsonb_array_elements(data)) != (SELECT count(DISTINCT val) FROM jsonb_array_elements(data) val) THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'additionalProperties' AND jsonb_typeof(data) = 'object' THEN
+    props := ARRAY(
+      SELECT key
+      FROM jsonb_object_keys(data) key
+      WHERE key NOT IN (SELECT jsonb_object_keys(schema->'properties'))
+        AND NOT EXISTS (SELECT * FROM jsonb_object_keys(schema->'patternProperties') pat WHERE key ~ pat)
+    );
+    IF jsonb_typeof(schema->'additionalProperties') = 'boolean' THEN
+      IF NOT (schema->'additionalProperties')::text::boolean AND jsonb_typeof(data) = 'object' AND NOT props <@ ARRAY(SELECT jsonb_object_keys(schema->'properties')) THEN
+        RETURN false;
+      END IF;
+    ELSEIF NOT (
+      SELECT bool_and(public.validate_json_schema(schema->'additionalProperties', data->key, root_schema))
+      FROM unnest(props) key
+    ) THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? '$ref' THEN
+    path := ARRAY(
+      SELECT regexp_replace(regexp_replace(path_part, '~1', '/'), '~0', '~')
+      FROM UNNEST(regexp_split_to_array(schema->>'$ref', '/')) path_part
+    );
+    -- ASSERT path[1] = '#', 'only refs anchored at the root are supported';
+    IF NOT public.validate_json_schema(root_schema #> path[2:array_length(path, 1)], data, root_schema) THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'enum' THEN
+    IF NOT EXISTS (SELECT * FROM jsonb_array_elements(schema->'enum') val WHERE val = data) THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'minLength' AND jsonb_typeof(data) = 'string' THEN
+    IF char_length(data #>> '{}') < (schema->>'minLength')::numeric THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'maxLength' AND jsonb_typeof(data) = 'string' THEN
+    IF char_length(data #>> '{}') > (schema->>'maxLength')::numeric THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'not' THEN
+    IF public.validate_json_schema(schema->'not', data, root_schema) THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'maxProperties' AND jsonb_typeof(data) = 'object' THEN
+    IF (SELECT count(*) FROM jsonb_object_keys(data)) > (schema->>'maxProperties')::numeric THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'minProperties' AND jsonb_typeof(data) = 'object' THEN
+    IF (SELECT count(*) FROM jsonb_object_keys(data)) < (schema->>'minProperties')::numeric THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'maxItems' AND jsonb_typeof(data) = 'array' THEN
+    IF (SELECT count(*) FROM jsonb_array_elements(data)) > (schema->>'maxItems')::numeric THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'minItems' AND jsonb_typeof(data) = 'array' THEN
+    IF (SELECT count(*) FROM jsonb_array_elements(data)) < (schema->>'minItems')::numeric THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'dependencies' THEN
+    FOR prop IN SELECT jsonb_object_keys(schema->'dependencies') LOOP
+      IF data ? prop THEN
+        IF jsonb_typeof(schema->'dependencies'->prop) = 'array' THEN
+          IF NOT (SELECT bool_and(data ? dep) FROM jsonb_array_elements_text(schema->'dependencies'->prop) dep) THEN
+            RETURN false;
+          END IF;
+        ELSE
+          IF NOT public.validate_json_schema(schema->'dependencies'->prop, data, root_schema) THEN
+            RETURN false;
+          END IF;
+        END IF;
+      END IF;
+    END LOOP;
+  END IF;
+
+  IF schema ? 'pattern' AND jsonb_typeof(data) = 'string' THEN
+    IF (data #>> '{}') !~ (schema->>'pattern') THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  IF schema ? 'patternProperties' AND jsonb_typeof(data) = 'object' THEN
+    FOR prop IN SELECT jsonb_object_keys(data) LOOP
+      FOR pattern IN SELECT jsonb_object_keys(schema->'patternProperties') LOOP
+        RAISE NOTICE 'prop %s, pattern %, schema %', prop, pattern, schema->'patternProperties'->pattern;
+        IF prop ~ pattern AND NOT public.validate_json_schema(schema->'patternProperties'->pattern, data->prop, root_schema) THEN
+          RETURN false;
+        END IF;
+      END LOOP;
+    END LOOP;
+  END IF;
+
+  IF schema ? 'multipleOf' AND jsonb_typeof(data) = 'number' THEN
+    IF data::text::numeric % (schema->>'multipleOf')::numeric != 0 THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  RETURN true;
+END;
+$_$;
 
 
 --
@@ -5903,7 +6176,6 @@ COPY dev.t_dbg (id, msg, time_when) FROM stdin;
 
 COPY dev.ver (id, ver, ver_str, upgrade_script, downgrade_script, run_at) FROM stdin;
 1	1	0	select public.raise_exception ('This is 1 version');	select public.raise_exception ('This is 1 version');	2021-09-22 14:50:17.832813+00
-2	2	\N	begin;\nSET CLIENT_ENCODING TO 'utf8';\nCREATE TEMP TABLE var_table\n    (\n        ver int,\n        upgrade_script text,\n        downgrade_script text\n    );\n    \ninsert into var_table(ver)\t\n    select max(ver) + 1\n        from dev.VER;\n        \nselect reclada.raise_exception('Can not apply this version!') \n    where not exists\n    (\n        select ver from var_table where ver = 2 --!!! write current version HERE !!!\n    );\n\nCREATE TEMP TABLE tmp\n(\n    id int GENERATED ALWAYS AS IDENTITY,\n    str text\n);\n--{ logging upgrade script\nCOPY tmp(str) FROM  'up.sql' delimiter E'';\nupdate var_table set upgrade_script = array_to_string(ARRAY((select str from tmp order by id asc)),chr(10),'');\ndelete from tmp;\n--} logging upgrade script\t\n\n--{ create downgrade script\nCOPY tmp(str) FROM  'down.sql' delimiter E'';\nupdate tmp set str = drp.v || scr.v\n    from tmp ttt\n    inner JOIN LATERAL\n    (\n        select substring(ttt.str from 4 for length(ttt.str)-4) as v\n    )  obj_file_name ON TRUE\n    inner JOIN LATERAL\n    (\n        select \tsplit_part(obj_file_name.v,'/',1) typ,\n                split_part(obj_file_name.v,'/',2) nam\n    )  obj ON TRUE\n        inner JOIN LATERAL\n    (\n        select case\n                when obj.typ = 'trigger'\n                    then\n                        (select 'DROP '|| obj.typ || ' IF EXISTS '|| obj.nam ||' ON ' || schm||'.'||tbl ||';' || E'\n'\n                        from (\n                            select n.nspname as schm,\n                                   c.relname as tbl\n                            from pg_trigger t\n                                join pg_class c on c.oid = t.tgrelid\n                                join pg_namespace n on n.oid = c.relnamespace\n                            where t.tgname = obj.nam) o)\n                else 'DROP '||obj.typ|| ' IF EXISTS '|| obj.nam || ' ;' || E'\n'\n                end as v\n    )  drp ON TRUE\n    inner JOIN LATERAL\n    (\n        select case \n                when obj.typ in ('function', 'procedure')\n                    then\n                        case \n                            when EXISTS\n                                (\n                                    SELECT 1 a\n                                        FROM pg_proc p \n                                        join pg_namespace n \n                                            on p.pronamespace = n.oid \n                                            where n.nspname||'.'||p.proname = obj.nam\n                                        LIMIT 1\n                                ) \n                                then (select pg_catalog.pg_get_functiondef(obj.nam::regproc::oid))||';'\n                            else ''\n                        end\n                when obj.typ = 'view'\n                    then\n                        case \n                            when EXISTS\n                                (\n                                    select 1 a \n                                        from pg_views v \n                                            where v.schemaname||'.'||v.viewname = obj.nam\n                                        LIMIT 1\n                                ) \n                                then E'CREATE OR REPLACE VIEW '\n                                        || obj.nam\n                                        || E'\nAS\n'\n                                        || (select pg_get_viewdef(obj.nam, true))\n                            else ''\n                        end\n                when obj.typ = 'trigger'\n                    then\n                        case\n                            when EXISTS\n                                (\n                                    select 1 a\n                                        from pg_trigger v\n                                            where v.tgname = obj.nam\n                                        LIMIT 1\n                                )\n                                then (select pg_catalog.pg_get_triggerdef(oid, true)\n                                        from pg_trigger\n                                        where tgname = obj.nam)||';'\n                            else ''\n                        end\n                else \n                    ttt.str\n            end as v\n    )  scr ON TRUE\n    where ttt.id = tmp.id\n        and tmp.str like '--{%/%}';\n    \nupdate var_table set downgrade_script = array_to_string(ARRAY((select str from tmp order by id asc)),chr(10),'');\t\n--} create downgrade script\ndrop table tmp;\n\n\n--{!!! write upgrare script HERE !!!\n\n--\tyou can use "i 'function/reclada_object.get_schema.sql'"\n--\tto run text script of functions\n \n/*\n    you can use "i 'function/reclada_object.get_schema.sql'"\n    to run text script of functions\n*/\n\ncreate table public.test (id int, val text);\n\n SELECT reclada.raise_notice('Begin install component db...');\n                SELECT dev.begin_install_component('db','https://github.com/Unrealman17/db_ver','3b642092541812549301b9b3f6b42d2a7401c50b');\n                \n-- 1\nSELECT reclada_object.create_subclass('{\n    "class": "RecladaObject",\n    "attributes": {\n        "newClass": "tag",\n        "properties": {\n            "name": {"type": "string"}\n        },\n        "required": ["name"]\n    }\n}'::jsonb);\n-- 2\nSELECT reclada_object.create_subclass('{\n    "class": "RecladaObject",\n    "attributes": {\n        "newClass": "DataSource",\n        "properties": {\n            "name": {"type": "string"},\n            "uri": {"type": "string"}\n        },\n        "required": ["name"]\n    }\n}'::jsonb);\n-- 3\nSELECT reclada_object.create_subclass('{\n    "class": "RecladaObject",\n    "attributes": {\n        "newClass": "S3Config",\n        "properties": {\n            "endpointURL": {"type": "string"},\n            "regionName": {"type": "string"},\n            "accessKeyId": {"type": "string"},\n            "secretAccessKey": {"type": "string"},\n            "bucketName": {"type": "string"}\n            },\n        "required": ["accessKeyId", "secretAccessKey", "bucketName"]\n    }\n}'::jsonb);\n--{ 4 DataSet\nSELECT reclada_object.create_subclass('{\n        "class": "RecladaObject",\n        "attributes": {\n            "newClass": "DataSet",\n            "properties": {\n                "name": {"type": "string"},\n                "dataSources": {\n                    "type": "array",\n                    "items": {"type": "string"}\n                }\n            },\n            "required": ["name"]\n        }\n    }'::jsonb);\n\n        SELECT reclada_object.create('{\n            "GUID":"10c400ff-a328-450d-ae07-ce7d427d961c",\n            "class": "DataSet",\n            "attributes": {\n                "name": "defaultDataSet",\n                "dataSources": []\n            }\n        }'::jsonb);\n--} 4 DataSet\n\n-- 5\nSELECT reclada_object.create_subclass('{\n    "class": "RecladaObject",\n    "attributes": {\n        "newClass": "Message",\n        "properties": {\n            "channelName": {"type": "string"},\n            "class": {"type": "string"},\n            "event": {\n                "type": "string",\n                "enum": [\n                    "create",\n                    "update",\n                    "list",\n                    "delete"\n                ]\n            },\n            "attributes": {\n                "type": "array", \n                "items": {"type": "string"}\n            }\n        },\n        "required": ["class", "channelName", "event"]\n    }\n}'::jsonb);\n\n--{ 6 Index\nSELECT reclada_object.create_subclass('{\n            "class": "RecladaObject",\n            "attributes": {\n                "newClass": "Index",\n                "properties": {\n                    "name": {"type": "string"},\n                    "method": {\n                        "type": "string",\n                        "enum ": [\n                            "btree", \n                            "hash" , \n                            "gist" , \n                            "gin"\n                        ]\n                    },\n                    "wherePredicate": {\n                        "type": "string"\n                    },\n                    "fields": {\n                        "items": {\n                            "type": "string"\n                        },\n                        "type": "array",\n                        "minContains": 1\n                    }\n                },\n                "required": ["name","fields"]\n            }\n        }'::jsonb);\n\n    select reclada_object.create('{\n            "GUID": "db0873d1-786f-4d5d-b790-5c3b3cd29baf",\n            "class": "Index",\n            "attributes": {\n                "name": "checksum_index_",\n                "fields": ["(attributes ->> ''checksum''::text)"],\n                "method": "hash",\n                "wherePredicate": "((attributes ->> ''checksum''::text) IS NOT NULL)"\n            }\n        }'::jsonb);\n    select reclada_object.create('{\n            "GUID": "db08d53b-c423-4e94-8b14-e73ebe98e991",\n            "class": "Index",\n            "attributes": {\n                "name": "repository_index_",\n                "fields": ["(attributes ->> ''repository''::text)"],\n                "method": "btree",\n                "wherePredicate": "((attributes ->> ''repository''::text) IS NOT NULL)"\n            }    \n        }'::jsonb);\n    select reclada_object.create('{\n        "GUID": "db05e253-7954-4610-b094-8f9925ea77b4",\n        "class": "Index",\n        "attributes": {\n                "name": "commithash_index_",\n                "fields": ["(attributes ->> ''commitHash''::text)"],\n                "method": "btree",\n                "wherePredicate": "((attributes ->> ''commitHash''::text) IS NOT NULL)"\n            }    \n        }'::jsonb);\n    select reclada_object.create('{\n        "GUID": "db02f980-cd5a-4c1a-9341-7a81713cd9d0",\n        "class": "Index",\n        "attributes": {\n                "name": "fields_index_",\n                "fields": ["(attributes ->> ''fields''::text)"],\n                "method": "btree",\n                "wherePredicate": "((attributes ->> ''fields''::text) IS NOT NULL)"\n            }    \n        }'::jsonb);\n    select reclada_object.create('{\n            "GUID": "db0e400b-1da4-4823-bb80-15eb144a1639",\n            "class": "Index",\n            "attributes": {\n                    "name": "caption_index_",\n                    "fields": ["(attributes ->> ''caption''::text)"],\n                    "method": "btree",\n                    "wherePredicate": "((attributes ->> ''caption''::text) IS NOT NULL)"\n                }    \n        }'::jsonb);\n    select reclada_object.create('{\n            "GUID": "db09fafb-91b1-4fe6-8e5c-1cd2d7d9225a",\n            "class": "Index",\n            "attributes": {\n                "name": "type_index",\n                "fields": ["(attributes ->> ''type''::text)"],\n                "method": "btree",\n                "wherePredicate": "((attributes ->> ''type''::text) IS NOT NULL)"\n            }    \n        }'::jsonb);\n    select reclada_object.create('{\n            "GUID": "db0118e5-ea34-45dc-b72c-f16f6a628ddb",\n            "class": "Index",\n            "attributes": {\n                "name": "schema_index_",\n                "fields": ["(attributes ->> ''schema''::text)"],\n                "method": "btree",\n                "wherePredicate": "((attributes ->> ''schema''::text) IS NOT NULL)"\n            }    \n        }'::jsonb);\n    select reclada_object.create('{\n            "GUID": "db07c919-5bc0-4fec-961c-f558401d3e71",\n            "class": "Index",\n            "attributes": {\n                "name": "forclass_index_",\n                "fields": ["(attributes ->> ''forclass''::text)"],\n                "method": "btree",\n                "wherePredicate": "((attributes ->> ''forclass''::text) IS NOT NULL)"\n            }    \n        }'::jsonb);\n    select reclada_object.create('{\n            "GUID": "db0184b8-556e-4f57-af12-d84066adbe31",\n            "class": "Index",\n            "attributes": {\n                "name": "revision_index",\n                "fields": ["(attributes ->> ''revision''::text)"],\n                "method": "btree",\n                "wherePredicate": "((attributes ->> ''revision''::text) IS NOT NULL)"\n            }    \n        }'::jsonb);\n    select reclada_object.create('{\n            "GUID": "db0e22c0-e0d7-4b11-bf25-367a8fbdef83",\n            "class": "Index",\n            "attributes": {\n                "name": "subject_index_",\n                "fields": ["(attributes ->> ''subject''::text)"],\n                "method": "btree",\n                "wherePredicate": "((attributes ->> ''subject''::text) IS NOT NULL)"\n            }    \n        }'::jsonb);\n    select reclada_object.create('{\n            "GUID": "db05c9c7-17ce-4b36-89d7-81b0ddd26a6a",\n            "class": "Index",\n            "attributes": {\n                "name": "class_index_",\n                "fields": ["(attributes ->> ''class''::text)"],\n                "method": "btree",\n                "wherePredicate": "((attributes ->> ''class''::text) IS NOT NULL)"\n            }    \n        }'::jsonb);\n    select reclada_object.create('{\n            "GUID": "db0a88c1-ac00-42e5-9caa-6007a1c948c6",\n            "class": "Index",\n                "attributes": {\n                "name": "name_index_",\n                "fields": ["(attributes ->> ''name''::text)"],\n                "method": "btree",\n                "wherePredicate": "((attributes ->> ''name''::text) IS NOT NULL)"\n            }    \n        }'::jsonb);\n    select reclada_object.create('{\n            "GUID": "db0fdc46-6479-4d20-bd21-a6330905e45b",\n            "class": "Index",\n            "attributes": {\n                "name": "event_index_",\n                "fields": ["(attributes ->> ''event''::text)"],\n                "method": "btree",\n                "wherePredicate": "((attributes ->> ''event''::text) IS NOT NULL)"\n            }    \n        }'::jsonb);\n    select reclada_object.create('{\n            "GUID": "db02b45a-acfd-4448-a51a-8e7dc35bf3af",\n            "class": "Index",\n            "attributes": {\n                "name": "function_index_",\n                "fields": ["(attributes ->> ''function''::text)"],\n                "method": "btree",\n                "wherePredicate": "((attributes ->> ''function''::text) IS NOT NULL)"\n            }    \n        }'::jsonb);\n    select reclada_object.create('{\n            "GUID": "db0b797a-b287-4282-b0f8-d985c7a439f4",\n            "class": "Index",\n            "attributes": {\n                "name": "login_index_",\n                "fields": ["(attributes ->> ''login''::text)"],\n                "method": "btree",\n                "wherePredicate": "((attributes ->> ''login''::text) IS NOT NULL)"\n            }    \n        }'::jsonb);\n    select reclada_object.create('{\n            "GUID": "db03c715-c0f9-43c3-940a-803aafa513e0",\n            "class": "Index",\n            "attributes": {\n                "name": "object_index_",\n                "fields": ["(attributes ->> ''object''::text)"],\n                "method": "btree",\n                "wherePredicate": "((attributes ->> ''object''::text) IS NOT NULL)"\n            }    \n        }'::jsonb);\n\n--} 6 Index\n\n-- 7\nSELECT reclada_object.create_subclass('{\n    "class": "RecladaObject",\n    "attributes": {\n        "newClass": "Component",\n        "properties": {\n            "name": {"type": "string"},\n            "commitHash": {"type": "string"},\n            "repository": {"type": "string"}\n        },\n        "required": ["name","commitHash","repository"]\n    }\n}'::jsonb);\n\n--{ 9 DTOJsonSchema\nSELECT reclada_object.create_subclass('{\n    "class": "RecladaObject",\n    "attributes": {\n        "newClass": "DTOJsonSchema",\n        "properties": {\n            "schema": {"type": "object"},\n            "function": {"type": "string"}\n        },\n        "required": ["schema","function"]\n    }\n}'::jsonb);\n\n    SELECT reclada_object.create('{\n            "GUID":"db0bf6f5-7eea-4dbd-9f46-e0535f7fb299",\n            "class": "DTOJsonSchema",\n            "attributes": {\n                "function": "reclada_object.get_query_condition_filter",\n                "schema": {\n                    "id": "expr",\n                    "type": "object",\n                    "required": [\n                        "value",\n                        "operator"\n                    ],\n                    "properties": {\n                        "value": {\n                            "type": "array",\n                            "items": {\n                                "anyOf": [\n                                    {\n                                        "type": "string"\n                                    },\n                                    {\n                                        "type": "null"\n                                    },\n                                    {\n                                        "type": "number"\n                                    },\n                                    {\n                                        "$ref": "expr"\n                                    },\n                                    {\n                                        "type": "boolean"\n                                    },\n                                    {\n                                        "type": "array",\n                                        "items": {\n                                            "anyOf": [\n                                                {\n                                                    "type": "string"\n                                                },\n                                                {\n                                                    "type": "number"\n                                                }\n                                            ]\n                                        }\n                                    }\n                                ]\n                            },\n                            "minItems": 1\n                        },\n                        "operator": {\n                            "type": "string"\n                        }\n                    }\n                }\n            }\n        }'::jsonb);\n\n     SELECT reclada_object.create('{\n            "GUID":"db0ad26e-a522-4907-a41a-a82a916fdcf9",\n            "class": "DTOJsonSchema",\n            "attributes": {\n                "function": "reclada_object.list",\n                "schema": {\n                    "type": "object",\n                    "anyOf": [\n                        {\n                            "required": [\n                                "transactionID"\n                            ]\n                        },\n                        {\n                            "required": [\n                                "class"\n                            ]\n                        },\n                        {\n                            "required": [\n                                "filter"\n                            ]\n                        }\n                    ],\n                    "properties": {\n                        "class": {\n                            "type": "string"\n                        },\n                        "limit": {\n                            "anyOf": [\n                                {\n                                    "enum": [\n                                        "ALL"\n                                    ],\n                                    "type": "string"\n                                },\n                                {\n                                    "type": "integer"\n                                }\n                            ]\n                        },\n                        "filter": {\n                            "type": "object"\n                        },\n                        "offset": {\n                            "type": "integer"\n                        },\n                        "orderBy": {\n                            "type": "array",\n                            "items": {\n                                "type": "object",\n                                "required": [\n                                    "field"\n                                ],\n                                "properties": {\n                                    "field": {\n                                        "type": "string"\n                                    },\n                                    "order": {\n                                        "enum": [\n                                            "ASC",\n                                            "DESC"\n                                        ],\n                                        "type": "string"\n                                    }\n                                }\n                            }\n                        },\n                        "transactionID": {\n                            "type": "integer"\n                        }\n                    }\n                }\n            }\n            \n        }'::jsonb);\n--} 9 DTOJsonSchema\n\n-- 10\nSELECT reclada_object.create_subclass('{\n    "class": "RecladaObject",\n    "attributes": {\n\n        "dupBehavior": "Replace",\n        "dupChecking": [\n            {\n                "isMandatory": true,\n                "uniFields": [\n                    "uri"\n                ]\n            },\n            {\n                "isMandatory": true,\n                "uniFields": [\n                    "checksum"\n                ]\n            }\n        ],\n        "isCascade": true,\n\n        "newClass": "File",\n        "properties": {\n            "uri": {"type": "string"},\n            "name": {"type": "string"},\n            "mimeType": {"type": "string"},\n            "checksum": {"type": "string"}\n        },\n        "required": ["uri","mimeType","name"]\n    }\n}'::jsonb);\n\n--{ 11 User\nSELECT reclada_object.create_subclass('{\n    "GUID":"db0db7c0-9b25-4af0-8013-d2d98460cfff",\n    "class": "RecladaObject",\n    "attributes": {\n        "newClass": "User",\n        "properties": {\n            "login": {"type": "string"}\n        },\n        "required": ["login"]\n    }\n}'::jsonb);\n\n    select reclada_object.create('{\n            "GUID": "db0789c1-1b4e-4815-b70c-4ef060e90884",\n            "class": "User",\n            "attributes": {\n                "login": "dev"\n            }\n        }'::jsonb);\n--} 11 User\n\n-- 12\nSELECT reclada_object.create_subclass('{\n    "class": "RecladaObject",\n    "attributes": {\n        "newClass": "ImportInfo",\n        "properties": {\n            "tranID": {"type": "number"},\n            "name": {"type": "string"}\n        },\n        "required": ["tranID","name"]\n    }\n}'::jsonb);\n-- 13\nSELECT reclada_object.create_subclass('{\n    "class": "RecladaObject",\n    "attributes": {\n        "newClass": "Asset",\n        "properties": {\n            "name": {"type": "string"},\n            "uri": {"type": "string"}\n        },\n        "required": ["name"]\n    }\n}'::jsonb);\n-- 14\nSELECT reclada_object.create_subclass('{\n    "class": "Asset",\n    "attributes": {\n        "newClass": "DBAsset"\n    }\n}'::jsonb);\n-- 15\nSELECT reclada_object.create_subclass('{\n    "class": "RecladaObject",\n    "attributes": {\n        "newClass": "revision",\n        "properties": {\n            "branch": {"type": "string"},\n            "user": {"type": "string"},\n            "num": {"type": "number"},\n            "dateTime": {"type": "string"}\n        },\n        "required": ["dateTime"]\n    }\n}'::jsonb);\n\n--{ 16 ObjectDisplay\nSELECT reclada_object.create_subclass('{\n    "class": "RecladaObject",\n    "attributes": {\n        "newClass": "ObjectDisplay",\n        "$defs": {\n            "displayType": {\n                "properties": {\n                    "orderColumn": {\n                        "items": {\n                            "type": "string"\n                        },\n                        "type": "array"\n                    },\n                    "orderRow": {\n                        "items": {\n                            "patternProperties": {\n                                "^{.*}$": {\n                                    "enum": [\n                                        "ASC",\n                                        "DESC"\n                                    ],\n                                    "type": "string"\n                                }\n                            },\n                            "type": "object"\n                        },\n                        "type": "array"\n                    }\n                },\n                "required": [\n                    "orderColumn",\n                    "orderRow"\n                ],\n                "type": "object"\n            }\n        },\n        "properties": {\n            "caption": {\n                "type": "string"\n            },\n            "card": {\n                "$ref": "#/$defs/displayType"\n            },\n            "classGUID": {\n                "type": "string",\n                "pattern": "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}"\n            },\n            "flat": {\n                "type": "bool"\n            },\n            "list": {\n                "$ref": "#/$defs/displayType"\n            },\n            "preview": {\n                "$ref": "#/$defs/displayType"\n            },\n            "table": {\n                "$ref": "#/$defs/displayType"\n            }\n        },\n        "required": [\n            "classGUID",\n            "caption"\n        ]\n    }\n}'::jsonb);\n\n    SELECT reclada_object.create(('{\n        "GUID": "db09dd42-f2a2-4e34-90ea-a6e5f5ea6dff",\n        "class": "ObjectDisplay",\n        "attributes": {\n            "card": {\n                "orderRow": [\n                    {\n                        "{attributes,name}:string": "ASC"\n                    },\n                    {\n                        "{attributes,mimeType}:string": "DESC"\n                    }\n                ],\n                "orderColumn": [\n                    "{attributes,name}:string",\n                    "{attributes,mimeType}:string",\n                    "{attributes,tags}:array",\n                    "{status}:string",\n                    "{createdTime}:string",\n                    "{transactionID}:number"\n                ]\n            },\n            "list": {\n                "orderRow": [\n                    {\n                        "{attributes,name}:string": "ASC"\n                    },\n                    {\n                        "{attributes,mimeType}:string": "DESC"\n                    }\n                ],\n                "orderColumn": [\n                    "{attributes,name}:string",\n                    "{attributes,mimeType}:string",\n                    "{attributes,tags}:array",\n                    "{status}:string",\n                    "{createdTime}:string",\n                    "{transactionID}:number"\n                ]\n            },\n            "table": {\n                "orderRow": [\n                    {\n                        "{attributes,name}:string": "ASC"\n                    },\n                    {\n                        "{attributes,mimeType}:string": "DESC"\n                    }\n                ],\n                "orderColumn": [\n                    "{attributes,name}:string",\n                    "{attributes,mimeType}:string",\n                    "{attributes,tags}:array",\n                    "{status}:string",\n                    "{createdTime}:string",\n                    "{transactionID}:number"\n                ],\n                "{GUID}:string": {\n                    "width": 250,\n                    "caption": "GUID",\n                    "displayCSS": "GUID"\n                },\n                "{status}:string": {\n                    "width": 250,\n                    "caption": "Status",\n                    "displayCSS": "status"\n                },\n                "{createdTime}:string": {\n                    "width": 250,\n                    "caption": "Created time",\n                    "displayCSS": "createdTime"\n                },\n                "{transactionID}:number": {\n                    "width": 250,\n                    "caption": "Transaction",\n                    "displayCSS": "transactionID"\n                },\n                "{attributes,tags}:array": {\n                    "items": {\n                        "class": "e12e729b-ac44-45bc-8271-9f0c6d4fa27b",\n                        "behavior": "preview",\n                        "displayCSS": "link"\n                    },\n                    "width": 250,\n                    "caption": "Tags",\n                    "displayCSS": "arrayLink"\n                },\n                "{attributes,name}:string": {\n                    "width": 250,\n                    "caption": "File name",\n                    "behavior": "preview",\n                    "displayCSS": "name"\n                },\n                "{attributes,checksum}:string": {\n                    "width": 250,\n                    "caption": "Checksum",\n                    "displayCSS": "checksum"\n                },\n                "{attributes,mimeType}:string": {\n                    "width": 250,\n                    "caption": "Mime type",\n                    "displayCSS": "mimeType"\n                }\n            },\n            "caption": "Files",\n            "preview": {\n                "orderRow": [\n                    {\n                        "{attributes,name}:string": "ASC"\n                    },\n                    {\n                        "{attributes,mimeType}:string": "DESC"\n                    }\n                ],\n                "orderColumn": [\n                    "{attributes,name}:string",\n                    "{attributes,mimeType}:string",\n                    "{attributes,tags}:array",\n                    "{status}:string",\n                    "{createdTime}:string",\n                    "{transactionID}:number"\n                ]\n            },\n            "classGUID": "'|| (SELECT obj_id\n                                FROM reclada.v_class\n                                    WHERE for_class = 'File'\n                                    ORDER BY ID DESC\n                                    LIMIT 1 ) ||'"\n        }\n    }')::jsonb);\n\n--} 16 ObjectDisplay\n\n--{ 17 View\nSELECT reclada_object.create_subclass('{\n        "GUID":"db09dcaa-fc90-4760-af68-f855cbe9c2b0",\n        "class": "RecladaObject",\n        "attributes": {\n            "newClass": "View",\n            "properties": {\n                "name": {"type": "string"},\n                "query": {"type": "string"}\n            },\n            "required": ["name","query"]\n        }\n    }'::jsonb);\n--} 17 View\n\n--{ 18 Function\nSELECT reclada_object.create_subclass('{\n        "GUID":"db0d8ccd-a06e-46c3-9836-a8b4b68f3cd4",\n        "class": "RecladaObject",\n        "attributes": {\n            "newClass": "Function",\n            "$defs": {\n                "declare":{\n                    "type":"array",\n                    "items": {\n                        "type": "object",\n                        "properties":{\n                            "name":{"type": "string"},\n                            "type":{\n                                "type": "string",\n                                "enum": [\n                                    "uuid" ,\n                                    "jsonb",\n                                    "text" ,\n                                    "bigint"\n                                ]\n                            }\n                        },\n                        "required": ["name","type"]\n                    }\n                }\n            },\n            "properties": {\n                "name": {"type": "string"},\n                "parameters": { "$ref": "#/$defs/declare" },\n                "returns": {\n                    "type": "string",\n                    "enum": [\n                        "void",\n                        "uuid" ,\n                        "jsonb",\n                        "text" ,\n                        "bigint"\n                    ]\n                },\n                "declare": { "$ref": "#/$defs/declare" },\n                "body": {"type": "string"}\n            },\n            "required": ["name","returns","body"]\n        }\n    }'::jsonb);\n--} 18 Function\n\n--{ 19 DBTriggerFunction\nSELECT reclada_object.create_subclass('{\n        "GUID":"db0635d4-33be-4b5c-8af4-c90038665b7d",\n        "class": "Function",\n        "attributes": {\n            "newClass": "DBTriggerFunction",\n            "properties": {\n                "parameters": {\n                    "type":"array",\n                    "minItems": 1,\n                    "maxItems": 1,\n                    "items": {\n                        "type": "object",\n                        "properties":{\n                            "name":{\n                                "type": "string", \n                                "enum": ["object_id"]\n                            },\n                            "type":{\n                                "type": "string",\n                                "enum": ["bigint"]\n                            }\n                        },\n                        "required": ["name","type"]\n                    }\n                },\n                "returns": {\n                    "type": "string",\n                    "enum": [\n                        "void"]\n                }\n            },\n            "required": ["parameters"]\n        }\n    }'::jsonb);\n--} 19 DBTriggerFunction\n\n\n--{ 20 Trigger\nSELECT reclada_object.create_subclass('{\n    "GUID":"db05bc71-4f3c-4276-9b97-c9e83f21c813",\n    "class": "RecladaObject",\n    "attributes": {\n        "newClass": "DBTrigger",\n        "properties": {\n            "name": {"type": "string"},\n            "action": {\n                "type": "string",\n                "enum": [\n                    "insert",\n                    "delete"\n                ]\n            },\n            "forClasses": {\n                "type": "array",\n                "items": {"type": "string"}\n            },\n            "function":{\n                "type": "string",\n                "pattern": "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}"\n            }\n        },\n        "required": ["name","action","forClasses","function"]\n    }\n }'::jsonb);\n--} 20 Trigger\n                SELECT dev.finish_install_component();\n\n--}!!! write upgrare script HERE !!!\n\ninsert into dev.ver(ver,upgrade_script,downgrade_script)\n    select ver, upgrade_script, downgrade_script\n        from var_table;\n\n--{ testing downgrade script\nSAVEPOINT sp;\n    select dev.downgrade_version();\nROLLBACK TO sp;\n--} testing downgrade script\n\nselect reclada.raise_notice('OK, current version: ' \n                            || (select ver from var_table)::text\n                          );\ndrop table var_table;\n\ncommit;	-- you can use "--{function/reclada_object.get_schema}"\n-- to add current version of object to downgrade script\n\ndrop table public.test;	2022-09-05 06:23:15.362104+00
 \.
 
 
@@ -6191,6 +6463,12 @@ CREATE INDEX width_index_v47 ON reclada.object USING btree (((attributes -> 'wid
 --
 
 CREATE TRIGGER load_staging AFTER INSERT ON reclada.staging REFERENCING NEW TABLE AS new_table FOR EACH STATEMENT EXECUTE FUNCTION reclada.load_staging();
+
+
+--
+-- Name: SCHEMA public; Type: ACL; Schema: -; Owner: -
+--
+
 
 
 --
