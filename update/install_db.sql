@@ -5902,7 +5902,7 @@ COPY dev.t_dbg (id, msg, time_when) FROM stdin;
 --
 
 COPY dev.ver (id, ver, ver_str, upgrade_script, downgrade_script, run_at) FROM stdin;
-1	0	0	select public.raise_exception ('This is 0 version');	select public.raise_exception ('This is 0 version');	2021-09-22 14:50:17.832813+00
+1	1	0	select public.raise_exception ('This is 1 version');	select public.raise_exception ('This is 1 version');	2021-09-22 14:50:17.832813+00
 \.
 
 
