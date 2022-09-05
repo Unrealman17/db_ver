@@ -107,7 +107,7 @@ class DBHelper:
     def pg_dump(self, file_name:str, time:str):
         self.run_cmd_scalar('delete from dev.component_object;')
 
-        os.system(f'pg_dump -N public -f {file_name} -O {self.db_uri}')
+        os.system(f'pg_dump -f {file_name} -O {self.db_uri}')
 
         with open('up_script.sql',encoding='utf8') as f:
             ver_str = f.readline()
