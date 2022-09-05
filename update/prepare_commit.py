@@ -164,13 +164,3 @@ if __name__ == "__main__":
         print('skipped . . .')
         print('If evrything okay - run this script again before commit to update jsonschemas and install_db.sql')
     
-    input("Press Enter to install components . . .")
-    db_helper.install_components()
-
-    input("Press Enter to run testing clean db . . .")    
-    run_test(db_helper.branch_QAAutotests)
-
-    input("Press Enter to run testing upgraded db . . .")
-    os.system('python install_db.py')
-    upgrade(db_helper)
-    run_test(db_helper.branch_QAAutotests)
