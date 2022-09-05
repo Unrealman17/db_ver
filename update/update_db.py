@@ -59,12 +59,12 @@ class DBHelper:
     def get_commit_history(self, need_comment:bool = False):
         checkout(self.branch_db)
         
-        res = os.popen(f'git log --pretty=format:"%H" --first-parent fbcc09e9f4f5b03f0f952b95df8b481ec83b6685..').readlines()
+        res = os.popen(f'git log --pretty=format:"%H" --first-parent 83a22dcb7856110035b1090e3638ebbe6166822c..').readlines()
         for i in range(len(res)):
             res[i]=res[i].strip()
         res.reverse()
         if need_comment:
-            res2 = os.popen('git log --pretty=format:"%B" --first-parent fbcc09e9f4f5b03f0f952b95df8b481ec83b6685..').readlines()
+            res2 = os.popen('git log --pretty=format:"%B" --first-parent 83a22dcb7856110035b1090e3638ebbe6166822c..').readlines()
             while('\n' in res2):
                 res2.remove('\n')
             for i in range(len(res2)):
@@ -83,8 +83,7 @@ class DBHelper:
                 pre_valid_commit +=1
             else:
                 remove_index.append(i)
-                if '4e175924faa761be367b19f62034057c1498fcb7' != commit:
-                    print(f'\tcommit: {commit} is invalid')
+                print(f'\tcommit: {commit} is invalid')
             i+=1
             os.chdir('..')
             
@@ -103,12 +102,12 @@ class DBHelper:
             db_uri = self.db_uri
         return f'psql -t -P pager=off {cmd} {db_uri}'
 
-    #zero = 'fbcc09e9f4f5b03f0f952b95df8b481ec83b6685\n'
+    #zero = '83a22dcb7856110035b1090e3638ebbe6166822c\n'
 
     def pg_dump(self, file_name:str, time:str):
         self.run_cmd_scalar('delete from dev.component_object;')
 
-        os.system(f'pg_dump -N public -f {file_name} -O {self.db_uri}')
+        os.system(f'pg_dump -f {file_name} -O {self.db_uri}')
 
         with open('up_script.sql',encoding='utf8') as f:
             ver_str = f.readline()

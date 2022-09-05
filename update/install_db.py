@@ -15,12 +15,12 @@ def db_install(db_helper:DBHelper = None):
 
     if db_helper is None:
         db_helper = DBHelper()
-    db_helper.json_schema_install()
+
     db_helper.clone_db()
     
     h = db_helper.get_commit_history()
     max_dump_commit = min(db_helper.config_version,len(h))-1
-    while(max_dump_commit > 0):
+    while(max_dump_commit > -1):
         c = h[max_dump_commit]
         commit_ver = get_version_from_commit(c)
         installer_ver = get_version_from_commit(c,'install_db.sql')
@@ -29,7 +29,7 @@ def db_install(db_helper:DBHelper = None):
         else:
             max_dump_commit -= 1
     
-    if max_dump_commit > 0:
+    if max_dump_commit > -1:
         os.chdir('update')
         db_helper.run_file('install_db.sql') # exec install_db.py
         db_helper.install_component_db()
