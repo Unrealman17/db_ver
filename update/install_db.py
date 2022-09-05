@@ -15,7 +15,7 @@ def db_install(db_helper:DBHelper = None):
 
     if db_helper is None:
         db_helper = DBHelper()
-    db_helper.json_schema_install()
+
     db_helper.clone_db()
     
     h = db_helper.get_commit_history()
