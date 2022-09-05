@@ -20,7 +20,7 @@ def db_install(db_helper:DBHelper = None):
     
     h = db_helper.get_commit_history()
     max_dump_commit = min(db_helper.config_version,len(h))-1
-    while(max_dump_commit > 0):
+    while(max_dump_commit > -1):
         c = h[max_dump_commit]
         commit_ver = get_version_from_commit(c)
         installer_ver = get_version_from_commit(c,'install_db.sql')
