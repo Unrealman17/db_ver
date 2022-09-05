@@ -51,9 +51,10 @@ class DBHelper:
         parsed = urllib.parse.urlparse(self.db_uri)
         self.db_user = parsed.username
         self.db_name = self.db_uri.split('/')[-1]
+        self.remote = get_current_remote_url()
 
     def clone_db(self):
-        clone('db', 'https://github.com/reclada/db.git', self.branch_db)
+        clone('db', self.remote, self.branch_db)
 
     def get_commit_history(self, need_comment:bool = False):
         checkout(self.branch_db)
@@ -138,8 +139,8 @@ class DBHelper:
         rmdir('postgres-json-schema')
 
     def install_component_db(self):
-        if self.config_version < 48: # Components do not exist before 48
-            raise Exception('Version lower 48 is not allowed')
+        # if self.config_version < 48: # Components do not exist before 48
+        #     raise Exception('Version lower 48 is not allowed')
         file_name = 'object_create_patched.sql'
         
         with open(file_name,'w') as f:
@@ -249,12 +250,8 @@ class DBHelper:
         execute(f'''CREATE DATABASE {self.db_name};''')
         
     def install_components(self):
-        v = self.get_version_from_db()
-        if v < 48: # Components do not exist before 48
-            raise Exception('Version lower 48 is not allowed')
-        else:
-            for comp_name in self.components:
-                self.replace_component(comp_name)
+        for comp_name in self.components:
+            self.replace_component(comp_name)
 
     def clear_db_from_components(self):
         print('clear db from components...')
@@ -331,7 +328,7 @@ def clone(component_name:str, repository:str, branch:str='', debug_db=False):
         os.chdir(path_dest)
     else:
         os.chdir(os.path.join('db','update'))
-        os.system(f'git clone {repository}')
+        os.system(f'git clone {repository} db')
         os.chdir(component_name)
         if branch != '':
             res = checkout(branch)

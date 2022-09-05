@@ -18,37 +18,26 @@ def db_install(db_helper:DBHelper = None):
     db_helper.json_schema_install()
     db_helper.clone_db()
     
-    short_install = os.path.isfile(os.path.join('update','install_db.sql')) and db_helper.quick_install
-    if short_install:
-        h = db_helper.get_commit_history()
-        max_dump_commit = min(db_helper.config_version,len(h))-1
-        while(max_dump_commit > 0):
-            c = h[max_dump_commit]
-            commit_ver = get_version_from_commit(c)
-            installer_ver = get_version_from_commit(c,'install_db.sql')
-            if commit_ver == installer_ver:
-                break
-            else:
-                max_dump_commit -= 1
-        
-        if max_dump_commit > 0:
-            os.chdir('update')
-            db_helper.run_file('install_db.sql') # exec install_db.py
-            db_helper.install_component_db()
-            os.chdir('..')
-
-        need_update = not((max_dump_commit == db_helper.config_version - 1) 
-            or (db_helper.config_version == MAX_VERSION and max_dump_commit == len(h)-1))
-
-    else:
-        os.chdir('..')
-        os.chdir('db/src')
-        db_helper.run_file('scheme.sql')
-        db_helper.run_file('functions.sql')
-        db_helper.run_file('data.sql')
-        os.chdir('..')
-        need_update = True
+    h = db_helper.get_commit_history()
+    max_dump_commit = min(db_helper.config_version,len(h))-1
+    while(max_dump_commit > 0):
+        c = h[max_dump_commit]
+        commit_ver = get_version_from_commit(c)
+        installer_ver = get_version_from_commit(c,'install_db.sql')
+        if commit_ver == installer_ver:
+            break
+        else:
+            max_dump_commit -= 1
     
+    if max_dump_commit > 0:
+        os.chdir('update')
+        db_helper.run_file('install_db.sql') # exec install_db.py
+        db_helper.install_component_db()
+        os.chdir('..')
+
+    need_update = not((max_dump_commit == db_helper.config_version - 1) 
+        or (db_helper.config_version == MAX_VERSION and max_dump_commit == len(h)-1))
+
     os.chdir('..')
     rmdir('db')
     return need_update
