@@ -29,7 +29,7 @@ def db_install(db_helper:DBHelper = None):
         else:
             max_dump_commit -= 1
     
-    if max_dump_commit > 0:
+    if max_dump_commit > -1:
         os.chdir('update')
         db_helper.run_file('install_db.sql') # exec install_db.py
         db_helper.install_component_db()
