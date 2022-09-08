@@ -115,7 +115,6 @@ BEGIN
         END IF; 
     END LOOP;
 
-    PERFORM reclada_object.perform_trigger_function(list_id, 'delete');
 
     SELECT array_to_json
     (
@@ -162,8 +161,6 @@ BEGIN
     
     PERFORM reclada_object.refresh_mv(cn)
         FROM unnest( _list_class_name ) AS cn;
-
-    PERFORM reclada_notification.send_object_notification('delete', data);
 
     RETURN data;
 END;

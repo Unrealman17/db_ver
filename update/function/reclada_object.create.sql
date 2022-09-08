@@ -14,7 +14,7 @@ DECLARE
     _attrs        jsonb;
     schema        jsonb;
     _obj_guid     uuid;
-    res           jsonb;
+    res           jsonb = '{}'::jsonb;
     affected      uuid[];
     inserted      uuid[];
     inserted_from_draft uuid[];
@@ -50,7 +50,7 @@ BEGIN
 
         if _component_guid is not null then
             _attrs      := _data-> 'attributes';
-            _obj_guid   := _data->>'GUID'      ;    
+            _obj_guid   := _data->>'GUID'      ;
             select obj_id, for_class 
                 from reclada.v_class 
                     where _data->>'class' in (obj_id::text, for_class)
@@ -76,6 +76,10 @@ BEGIN
             if _row_count > 1 then
                 perform reclada.raise_exception('Can not match component objects',_f_name);
             elsif _row_count = 1 then
+                res = res || '{"message": "Installing component"}'::jsonb;
+                res = res || ('{"ok":'
+                                || (COALESCE((res->>'ok')::bigint,0) + 1)::text
+                                ||'}')::jsonb;
                 continue;
             end if;
 
@@ -92,6 +96,10 @@ BEGIN
             if _row_count > 1 then
                 perform reclada.raise_exception('Can not match component objects',_f_name);
             elsif _row_count = 1 then
+                res = res || '{"message": "Installing component"}'::jsonb;
+                res = res || ('{"update":'
+                                || (COALESCE((res->>'update')::bigint,0) + 1)::text
+                                ||'}')::jsonb;
                 continue;
             end if;
             
@@ -116,11 +124,19 @@ BEGIN
             if _row_count > 1 then
                 perform reclada.raise_exception('Can not match component objects',_f_name);
             elsif _row_count = 1 then
+                res = res || '{"message": "Installing component"}'::jsonb;
+                res = res || ('{"ok":'
+                                || (COALESCE((res->>'ok')::bigint,0) + 1)::text
+                                ||'}')::jsonb;
                 continue;
             end if;
             
             insert into dev.component_object( data, status  )
                 select _data, 'create';
+                res = res || '{"message": "Installing component"}'::jsonb;
+                res = res || ('{"create":'
+                                || (COALESCE((res->>'create')::bigint,0) + 1)::text
+                                ||'}')::jsonb;
             continue;
             
         end if;
@@ -168,125 +184,6 @@ BEGIN
             END IF;
         END IF;
         
-        IF EXISTS (
-            SELECT 1
-            FROM reclada.v_object_unifields
-            WHERE class_uuid = _class_uuid
-        )
-        THEN
-            IF (_parent_guid IS NOT NULL) THEN
-                IF (_dup_behavior = 'Update' AND _is_cascade) THEN
-                    SELECT count(DISTINCT obj_guid), string_agg(DISTINCT obj_guid::text, ',')
-                    FROM reclada.get_duplicates(_attrs, _class_uuid)
-                        INTO _cnt, _guid_list;
-                    IF (_cnt >1) THEN
-                        RAISE EXCEPTION 'Found more than one duplicates (GUIDs: %). Resolve conflict manually.', _guid_list;
-                    ELSIF (_cnt = 1) THEN
-                        SELECT DISTINCT obj_guid, is_cascade
-                        FROM reclada.get_duplicates(_attrs, _class_uuid)
-                            INTO _obj_guid, _is_cascade;
-                        new_data := _data;
-                        IF new_data->>'GUID' IS NOT NULL THEN
-                            PERFORM reclada_object.create_relationship(
-                                    _rel_type,
-                                    _obj_guid,
-                                    (new_data->>'GUID')::uuid,
-                                    format('{"dupBehavior": "Update", "isCascade": %s}', _is_cascade::text)::jsonb);
-                        END IF;
-                        new_data := reclada_object.remove_parent_guid(new_data, _parent_field);
-                        new_data = reclada_object.update_json_by_guid(_obj_guid, new_data);
-                        SELECT reclada_object.update(new_data)
-                            INTO res;
-                        affected := array_append( affected, _obj_guid);
-                        skip_insert := true;
-                    END IF;
-                END IF;
-                IF NOT EXISTS (
-                    SELECT 1
-                    FROM reclada.v_active_object
-                    WHERE obj_id = _parent_guid
-                )
-                    AND _new_parent_guid IS NULL
-                THEN
-                    IF (_obj_guid IS NULL) THEN
-                        RAISE EXCEPTION 'GUID is required.';
-                    END IF;
-                    INSERT INTO reclada.draft(guid, parent_guid, data)
-                        VALUES(_obj_guid, _parent_guid, _data);
-                    skip_insert := true;
-                END IF;
-            END IF;
-
-            IF (NOT skip_insert) THEN
-                SELECT COUNT(DISTINCT obj_guid), dup_behavior, string_agg (DISTINCT obj_guid::text, ',')
-                FROM reclada.get_duplicates(_attrs, _class_uuid)
-                GROUP BY dup_behavior
-                    INTO _cnt, _dup_behavior, _guid_list;
-                IF (_cnt>1 AND _dup_behavior IN ('Update','Merge')) THEN
-                    RAISE EXCEPTION 'Found more than one duplicates (GUIDs: %). Resolve conflict manually.', _guid_list;
-                END IF;
-                FOR _obj_guid, _dup_behavior, _is_cascade, _uni_field IN
-                    SELECT obj_guid, dup_behavior, is_cascade, dup_field
-                    FROM reclada.get_duplicates(_attrs, _class_uuid)
-                LOOP
-                    new_data := _data;
-                    CASE _dup_behavior
-                        WHEN 'Replace' THEN
-                            IF (_is_cascade = true) THEN
-                                PERFORM reclada_object.delete(format('{"GUID": "%s"}', a)::jsonb)
-                                FROM reclada.get_children(_obj_guid) a;
-                            ELSE
-                                PERFORM reclada_object.delete(format('{"GUID": "%s"}', _obj_guid)::jsonb);
-                            END IF;
-                        WHEN 'Update' THEN
-                            IF new_data->>'GUID' IS NOT NULL THEN
-                                PERFORM reclada_object.create_relationship(
-                                    _rel_type,
-                                    _obj_guid,
-                                    (new_data->>'GUID')::uuid,
-                                    format('{"dupBehavior": "Update", "isCascade": %s}', _is_cascade::text)::jsonb);
-                            END IF;
-                            new_data := reclada_object.remove_parent_guid(new_data, _parent_field);
-                            new_data := reclada_object.update_json_by_guid(_obj_guid, new_data);
-                            SELECT reclada_object.update(new_data)
-                                INTO res;
-                            affected := array_append( affected, _obj_guid);
-                            skip_insert := true;
-                        WHEN 'Reject' THEN
-                            RAISE EXCEPTION 'The object was rejected.';
-                        WHEN 'Copy'    THEN
-                            _attrs := _attrs || format('{"%s": "%s_%s"}', _uni_field, _attrs->> _uni_field, nextval('reclada.object_id_seq'))::jsonb;
-                        WHEN 'Insert' THEN
-                            -- DO nothing
-                        WHEN 'Merge' THEN
-                            IF new_data->>'GUID' IS NOT NULL THEN
-                                PERFORM reclada_object.create_relationship(
-                                        _rel_type,
-                                        _obj_guid,
-                                        (new_data->>'GUID')::uuid,
-                                        '{"dupBehavior": "Merge"}'::jsonb
-                                    );
-                            END IF;
-                            new_data := reclada_object.remove_parent_guid(new_data, _parent_field);
-                            SELECT reclada_object.update(
-                                    reclada_object.merge(
-                                            new_data - 'class', 
-                                            data,
-                                            schema
-                                        ) 
-                                        || format('{"GUID": "%s"}', _obj_guid)::jsonb 
-                                        || format('{"transactionID": %s}', tran_id)::jsonb
-                                )
-                            FROM reclada.v_active_object
-                            WHERE obj_id = _obj_guid
-                                INTO res;
-                            affected := array_append( affected, _obj_guid);
-                            skip_insert := true;
-                    END CASE;
-                END LOOP;
-            END IF;
-        END IF;
-        
         IF (NOT skip_insert) THEN           
             _obj_guid := _data->>'GUID';
             IF EXISTS (
@@ -307,12 +204,6 @@ BEGIN
 
             affected := array_append( affected, _obj_guid);
             inserted := array_append( inserted, _obj_guid);
-            PERFORM reclada_object.object_insert
-                (
-                    _class_name,
-                    _obj_guid,
-                    _attrs
-                );
 
             PERFORM reclada_object.refresh_mv(_class_name);
         END IF;
@@ -331,20 +222,18 @@ BEGIN
         INTO inserted_from_draft;
     affected := affected || inserted_from_draft;    
 
-    res := array_to_json
-            (
-                array
+    if _component_guid is null then
+        res := array_to_json
                 (
-                    SELECT reclada.jsonb_merge(o.data, o.default_value) AS data
-                    FROM reclada.v_active_object o
-                    WHERE o.obj_id = ANY (affected)
-                )
-            )::jsonb;
-
-    if res = '{}'::jsonb and _component_guid is not null then 
-        res = '{"message": "Installing component"}'::jsonb;
+                    array
+                    (
+                        SELECT reclada.jsonb_merge(o.data, o.default_value) AS data
+                        FROM reclada.v_active_object o
+                        WHERE o.obj_id = ANY (affected)
+                    )
+                )::jsonb;
     end if;
-
+    
     notify_res := array_to_json
             (
                 array
@@ -358,13 +247,6 @@ BEGIN
     DELETE FROM reclada.draft 
         WHERE guid = ANY (affected);
 
-    --PERFORM reclada.update_unique_object(affected);
-        
-    PERFORM reclada_notification.send_object_notification
-        (
-            'create',
-            notify_res
-        );
     RETURN res;
 END;
 $$ LANGUAGE PLPGSQL VOLATILE;

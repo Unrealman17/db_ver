@@ -4,6 +4,7 @@ CREATE OR REPLACE FUNCTION dev.finish_install_component()
 RETURNS text AS $$
 DECLARE
     _f_name   text := 'dev.finish_install_component';
+    _count    text := '';
     _parent_component_name text;
     _comp_obj jsonb;
     _data     jsonb;
@@ -29,6 +30,13 @@ BEGIN
              _parent_component_name;
 
     delete from dev.component;
+
+    select count(*) 
+        from dev.component_object
+            where status = 'need to check'
+        into _count;
+
+    perform reclada.raise_notice('To delete: '|| _count ||' objects');
 
     update dev.component_object
         set status = 'delete'
@@ -87,7 +95,7 @@ BEGIN
     else
         perform reclada_object.create(_comp_obj);
     end if;
-    
+
     perform reclada_object.create_relationship(
                 'data of reclada-component',
                 c.guid ,

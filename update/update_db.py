@@ -2,6 +2,7 @@ import os
 import json
 import stat
 from pathlib import Path, PurePath
+import subprocess
 import sys
 import urllib.parse
 import uuid
@@ -100,7 +101,7 @@ class DBHelper:
     def psql_str(self, cmd:str , db_uri = '')->str:
         if db_uri == '':
             db_uri = self.db_uri
-        return f'psql -t -P pager=off {cmd} {db_uri}'
+        return f'psql -v ON_ERROR_STOP=1 -t -P pager=off {cmd} {db_uri}'
 
     #zero = '83a22dcb7856110035b1090e3638ebbe6166822c\n'
 
@@ -125,7 +126,8 @@ class DBHelper:
 
     def run_file(self, file_name):
         cmd = self.psql_str(f'-f "{file_name}"')
-        os.system(cmd)
+        return self.run_cmd(cmd)
+        #os.system(cmd)
 
     def json_schema_install(self):
         file_name = 'patched.sql'
@@ -149,10 +151,20 @@ class DBHelper:
         os.remove(file_name)
 
     def run_cmd_scalar(self, command, db_uri  = '')->str:
-        command = command.replace('"','""').replace('\n',' ')
+        command = command.replace('"', "'||chr(34)||'").replace('\n', ' ')
         cmd = self.psql_str(f'-c "{command}"', db_uri)
-        res = os.popen(cmd).read().strip()
-        return res
+        return self.run_cmd(cmd)
+
+    def run_cmd(self, cmd):
+        proc = subprocess.run(cmd, capture_output=True)
+        err = proc.stderr.decode("utf-8").strip()
+        if proc.returncode != 0:
+            err = err.strip()
+            print(err)
+            raise subprocess.CalledProcessError(
+                proc.returncode, cmd, proc.stdout, proc.stderr)
+        res = proc.stdout.decode("utf-8").strip() + '\n' + err
+        return res.strip()
 
     def get_component_guid(self, name:str)->str:
         return self.run_cmd_scalar(f"SELECT guid FROM reclada.v_component WHERE name = '{name}'")
@@ -478,7 +490,7 @@ if __name__ == "__main__":
                     shutil.copyfile('update_config.json', os.path.join('db','update','update_config.json'))
                 os.chdir(os.path.join('db','update'))
                 create_up()
-                db_helper.run_file('up.sql')
+                print(db_helper.run_file('up.sql'))
                 cur_ver_db+=1
             os.chdir('..')
 

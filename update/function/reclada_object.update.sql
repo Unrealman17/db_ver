@@ -91,60 +91,6 @@ BEGIN
         _parent_guid := old_obj->>'parentGUID';
     END IF;
     
-    IF EXISTS (
-        SELECT 1
-        FROM reclada.v_object_unifields
-        WHERE class_uuid=_class_uuid
-    )
-    THEN
-        SELECT COUNT(DISTINCT obj_guid), dup_behavior, string_agg(DISTINCT obj_guid::text, ',')
-        FROM reclada.get_duplicates(_attrs, _class_uuid, _obj_id)
-        GROUP BY dup_behavior
-            INTO _cnt, _dup_behavior, _guid_list;
-        IF (_cnt>1 AND _dup_behavior IN ('Update','Merge')) THEN
-            RAISE EXCEPTION 'Found more than one duplicates (GUIDs: %). Resolve conflict manually.', _guid_list;
-        END IF;
-        FOR _obj_guid, _dup_behavior, _uni_field IN (
-                SELECT obj_guid, dup_behavior, dup_field
-                FROM reclada.get_duplicates(_attrs, _class_uuid, _obj_id)
-            ) LOOP
-            IF _dup_behavior IN ('Update','Merge') THEN
-                UPDATE reclada.object o
-                    SET status = reclada_object.get_archive_status_obj_id()
-                WHERE o.GUID = _obj_guid
-                    AND status != reclada_object.get_archive_status_obj_id();
-            END IF;
-            CASE _dup_behavior
-                WHEN 'Replace' THEN
-                    PERFORM reclada_object.delete(format('{"GUID": "%s"}', _obj_guid)::jsonb);
-                WHEN 'Update' THEN                    
-                    _data := reclada_object.remove_parent_guid(_data, _parent_field);
-                    _data := reclada_object.update_json_by_guid(_obj_guid, _data);
-                    RETURN reclada_object.update(_data);
-                WHEN 'Reject' THEN
-                    RAISE EXCEPTION 'Duplicate found (GUID: %). Object rejected.', _obj_guid;
-                WHEN 'Copy'    THEN
-                    _attrs = _attrs || format('{"%s": "%s_%s"}', _uni_field, _attrs->> _uni_field, nextval('reclada.object_id_seq'))::jsonb;
-                    IF (NOT(public.validate_json_schema(schema, _attrs))) THEN
-                        RAISE EXCEPTION 'JSON invalid: %', _attrs;
-                    END IF;
-                WHEN 'Insert' THEN
-                    -- DO nothing
-                WHEN 'Merge' THEN     
-                    _data := reclada_object.remove_parent_guid(_data, _parent_field);               
-                    RETURN reclada_object.update(
-                        reclada_object.merge(
-                            _data - 'class', 
-                            vao.data, 
-                            schema
-                        ) || format('{"GUID": "%s"}', _obj_guid)::jsonb
-                    )
-                        FROM reclada.v_active_object vao
-                            WHERE obj_id = _obj_guid;
-            END CASE;
-        END LOOP;
-    END IF;
-
     with t as 
     (
         update reclada.object o
@@ -187,14 +133,6 @@ BEGIN
                 on tt.id = v.id
 	            WHERE v.obj_id = _obj_id;
 
-    --PERFORM reclada.update_unique_object(ARRAY[_obj_id]);
-
-    PERFORM reclada_object.object_insert
-            (
-                _class_name,
-                _obj_id,
-                _attrs
-            );
     PERFORM reclada_object.refresh_mv(_class_name);
 
     IF ( _class_name = 'jsonschema' AND jsonb_typeof(_attrs->'dupChecking') = 'array') THEN
@@ -205,7 +143,7 @@ BEGIN
         FROM reclada.v_active_object v
             WHERE v.obj_id = _obj_id
         INTO _data;
-    PERFORM reclada_notification.send_object_notification('update', _data);
+
     RETURN _data;
 END;
 $body$;

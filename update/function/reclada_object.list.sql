@@ -273,46 +273,18 @@ DECLARE
 BEGIN
 
     perform reclada.validate_json(data, _f_name);
-    raise notice '%',data;
-    if ver = '1' then
-        tran_id := (data->>'transactionID')::bigint;
-        _class := data->>'class';
-    elseif ver = '2' then
-        tran_id := (data->>'{transactionID}')::bigint;
-        _class := data->>'{class}';
-    end if;
+
+    tran_id := (data->>'transactionID')::bigint;
+    _class := data->>'class';
     _filter = data->'filter';
 
     order_by_jsonb := data->'orderBy';
     IF ((order_by_jsonb IS NULL) OR
         (order_by_jsonb = 'null'::jsonb) OR
         (order_by_jsonb = '[]'::jsonb)) THEN
-        
-        SELECT (vod.table #> '{orderRow}') AS orderRow
-            FROM reclada.v_object_display vod
-            WHERE vod.class_guid = (SELECT(reclada_object.get_schema (_class)#>>'{GUID}')::uuid)
-            INTO _order_row;
-        IF _order_row IS NOT NULL THEN     
-            SELECT jsonb_agg (
-                        jsonb_build_object(
-                                            'field',    replace(
-                                                            replace(obf.field::text,'{',''),
-                                                                '}',''
-                                                        ), 
-                                            'order', obf.order_by
-                                        )
-                            )
-                FROM(
-                    SELECT  je.value AS order_by, 
-                            split_part (je.key, ':', 1) AS field
-                        FROM jsonb_array_elements (_order_row) jae
-                        CROSS JOIN jsonb_each (jae.value) je
-                    ) obf
-                INTO order_by_jsonb;
-        ELSE
-            order_by_jsonb := '[{"field": "id", "order": "ASC"}]'::jsonb;
-        END IF;
+        order_by_jsonb := '[{"field": "id", "order": "ASC"}]'::jsonb;
     END IF;
+    
     SELECT string_agg(
         format(
             E'obj.data#>''{%s}'' %s', 
@@ -420,45 +392,23 @@ BEGIN
         INTO query_conditions;
     END IF;
     -- TODO: add ELSE
-    IF ver = '2' THEN
-        _pre_query := (select val from reclada.v_ui_active_object);
-        _from := 'res AS obj';
-        _pre_query := REPLACE(_pre_query, '#@#@#where#@#@#'  , query_conditions);
-        _pre_query := REPLACE(_pre_query, '#@#@#orderby#@#@#', order_by        );
-        order_by :=  REPLACE(order_by, '{', '{"{');
-        order_by :=  REPLACE(order_by, '}', '}"}'); --obj.data#>'{some_field}'  -->  obj.data#>'{"{some_field}"}'
 
-    ELSE
-        _pre_query := '';
-        _from := 'reclada.v_active_object AS obj
-                            WHERE #@#@#where#@#@#';
-        _from := REPLACE(_from, '#@#@#where#@#@#', query_conditions  );
-    END IF;
+    _pre_query := '';
+    _from := 'reclada.v_active_object AS obj
+                        WHERE #@#@#where#@#@#';
+    _from := REPLACE(_from, '#@#@#where#@#@#', query_conditions  );
+
     _exec_text := _pre_query ||
                 'SELECT to_jsonb(array_agg(t.data))
                     FROM 
                     (
-                        SELECT '
-                        || CASE
-                            WHEN ver = '2'
-                                THEN 'obj.data '
-                            ELSE 'reclada.jsonb_merge(obj.data, obj.default_value) AS data
-                                 '
-                        END
-                            ||
-                            'FROM '
+                        SELECT reclada.jsonb_merge(obj.data, obj.default_value) AS data
+                            FROM '
                             || _from
                             || ' 
-                            ORDER BY #@#@#orderby#@#@#'
-                            || CASE
-                                WHEN ver = '2'
-                                    THEN ''
-                                ELSE
-                                '
+                            ORDER BY #@#@#orderby#@#@#
                                 OFFSET #@#@#offset#@#@#
-                                LIMIT #@#@#limit#@#@#'
-                            END
-                            || '
+                                LIMIT #@#@#limit#@#@#
                     ) AS t';
     _exec_text := REPLACE(_exec_text, '#@#@#orderby#@#@#'  , order_by          );
     _exec_text := REPLACE(_exec_text, '#@#@#offset#@#@#'   , offset_           );
@@ -469,78 +419,6 @@ BEGIN
         INTO objects;
     objects := coalesce(objects,'[]'::jsonb);
     IF gui THEN
-
-        if ver = '2' then
-            class_uuid := coalesce(class_uuid, (objects#>>'{0,"{class}"}')::uuid);
-            if class_uuid is not null then
-                _class :=   (
-                                select cl.for_class 
-                                    from reclada.v_class_lite cl
-                                        where class_uuid = cl.obj_id
-                                            limit 1
-                            );
-
-                _exec_text := '
-                with 
-                d as ( 
-                    select id_unique_object
-                        FROM reclada.v_active_object obj 
-                        JOIN reclada.unique_object_reclada_object as uoc
-                            on uoc.id_reclada_object = obj.id
-                                and #@#@#where#@#@#
-                        group by id_unique_object
-                ),
-                dd as (
-                    select distinct 
-                            ''{''||f.path||''}:''||f.json_type v,
-                            f.json_type
-                        FROM d 
-                        JOIN reclada.unique_object as uo
-                            on d.id_unique_object = uo.id
-                        JOIN reclada.field f
-                            on f.id = ANY (uo.id_field)
-                    UNION
-                    SELECT  pattern||'':''|| t.v,
-                            t.v
-                    FROM reclada.v_filter_mapping vfm
-                    CROSS JOIN LATERAL 
-                    (
-                        SELECT  CASE 
-                                    WHEN vfm.pattern=''{transactionID}'' 
-                                        THEN ''number'' 
-                                    ELSE ''string'' 
-                                END as v
-                    ) t
-                ),
-                on_data as 
-                (
-                    select  jsonb_object_agg(
-                                t.v, 
-                                replace(dd.template,''#@#attrname#@#'',t.v)::jsonb 
-                            ) t
-                        from dd as t
-                        JOIN reclada.v_default_display dd
-                            on t.json_type = dd.json_type
-                )
-                select jsonb_set(templ.v,''{table}'', od.t || coalesce(d.table,coalesce(d.table,templ.v->''table'')))
-                    from on_data od
-                    join (
-                        select replace(template,''#@#classname#@#'','''|| _class ||''')::jsonb v
-                            from reclada.v_default_display 
-                                where json_type = ''ObjectDisplay''
-                                    limit 1
-                    ) templ
-                        on true
-                    left join reclada.v_object_display d
-                        on d.class_guid::text = '''|| coalesce( class_uuid::text, '' ) ||'''';
-
-                _exec_text := REPLACE(_exec_text, '#@#@#where#@#@#', query_conditions  );
-                -- raise notice '%',_exec_text;
-                EXECUTE _exec_text
-                    INTO _object_display;
-            end if;
-        end if;
-
 
         _exec_text := '
             SELECT  COUNT(1),

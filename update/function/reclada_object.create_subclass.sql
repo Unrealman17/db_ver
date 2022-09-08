@@ -79,7 +79,10 @@ BEGIN
         if _row_count > 1 then
             perform reclada.raise_exception('Can not match component objects',_f_name);
         elsif _row_count = 1 then
-            return _res;
+            return ('{"message": "Installing component, create_subclass('
+                        || _new_class
+                        || '), status = ''ok''"}'
+                    )::jsonb;
         end if;
 
         -- upgrade jsonschema
