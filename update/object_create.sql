@@ -170,18 +170,18 @@ SELECT reclada_object.create_subclass('{
             "class": "Cat",
             "attributes": {
                 "name": "Vovan",
-                "weight": 78,
+                "weight": 81,
                 "color": "green"
             }
         }'::jsonb);
 
         SELECT reclada_object.create('{
-            "GUID":"DB6796DF-97D4-45AB-991B-10D1A610159B",
+            "GUID":"5C3D698C-D78E-4096-B812-387FEF483FE2",
             "class": "Cat",
             "attributes": {
-                "name": "Igor",
-                "weight": 34,
-                "color": "black"
+                "name": "Irina",
+                "weight": 57,
+                "color": "green"
             }
         }'::jsonb);
 
