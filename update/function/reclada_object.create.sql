@@ -145,6 +145,8 @@ BEGIN
                     _class_name ,
                     _class_uuid ;
 
+        _parent_guid = reclada.try_cast_uuid(_data->>'parentGUID');
+        
         skip_insert := false;
 
         tran_id := (_data->>'transactionID')::bigint;
