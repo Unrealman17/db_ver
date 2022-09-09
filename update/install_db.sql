@@ -1,4 +1,4 @@
--- version = 2
+-- version = 1
 -- 2022-09-09 18:03:54.666489--
 -- PostgreSQL database dump
 --
