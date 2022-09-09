@@ -60,12 +60,12 @@ class DBHelper:
     def get_commit_history(self, need_comment:bool = False):
         checkout(self.branch_db)
         
-        res = os.popen(f'git log --pretty=format:"%H" --first-parent 83a22dcb7856110035b1090e3638ebbe6166822c..').readlines()
+        res = os.popen(f'git log --pretty=format:"%H" --first-parent 2fc8faffe9bed05469c3d2204face836ef04d13c..').readlines()
         for i in range(len(res)):
             res[i]=res[i].strip()
         res.reverse()
         if need_comment:
-            res2 = os.popen('git log --pretty=format:"%B" --first-parent 83a22dcb7856110035b1090e3638ebbe6166822c..').readlines()
+            res2 = os.popen('git log --pretty=format:"%B" --first-parent 2fc8faffe9bed05469c3d2204face836ef04d13c..').readlines()
             while('\n' in res2):
                 res2.remove('\n')
             for i in range(len(res2)):
@@ -103,7 +103,7 @@ class DBHelper:
             db_uri = self.db_uri
         return f'psql -v ON_ERROR_STOP=1 -t -P pager=off {cmd} {db_uri}'
 
-    #zero = '83a22dcb7856110035b1090e3638ebbe6166822c\n'
+    #zero = '2fc8faffe9bed05469c3d2204face836ef04d13c\n'
 
     def pg_dump(self, file_name:str, time:str):
         self.run_cmd_scalar('delete from dev.component_object;')
