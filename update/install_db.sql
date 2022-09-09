@@ -1,5 +1,5 @@
 -- version = 1
--- 2022-09-09 18:03:54.666489--
+-- 2022-09-09 19:40:02.626899--
 -- PostgreSQL database dump
 --
 
@@ -1171,6 +1171,8 @@ BEGIN
                     _class_name ,
                     _class_uuid ;
 
+        _parent_guid = reclada.try_cast_uuid(_data->>'parentGUID');
+        
         skip_insert := false;
 
         tran_id := (_data->>'transactionID')::bigint;
@@ -1385,12 +1387,18 @@ BEGIN
         if _row_count > 1 then
             perform reclada.raise_exception('Can not match component objects',_f_name);
         elsif _row_count = 1 then
-            return _res;
+            return ('{"message": "Installing component, create_subclass('
+                        || _new_class
+                        || '), status = ''delete / create_subclass''"}'
+                    )::jsonb;
         end if;
 
         insert into dev.component_object( data, status  )
                 select _data, 'create_subclass';
-            return _res;
+            return ('{"message": "Installing component, create_subclass('
+                        || _new_class
+                        || '), status = ''create_subclass''"}'
+                    )::jsonb;
     end if;
 
     FOR _class IN SELECT jsonb_array_elements_text(_class_list)
@@ -2117,6 +2125,8 @@ BEGIN
     SELECT reclada.create_revision(user_info->>'sub', branch, _obj_id, _tran_id) 
         INTO revid;
 
+    _parent_guid = reclada.try_cast_uuid(_data->>'parentGUID');
+    
     IF (_parent_guid IS NULL) THEN
         _parent_guid := old_obj->>'parentGUID';
     END IF;
