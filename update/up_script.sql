@@ -4,11 +4,6 @@
   to run text script of functions
 */
 
-
-\i 'function/reclada_object.create.sql'
-\i 'function/reclada_object.update.sql'
-\i 'function/reclada_object.create_subclass.sql'
-
 CREATE table public.num(id int, val text);
 
 \i 'view/public.v_cat.sql'

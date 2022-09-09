@@ -119,6 +119,7 @@ SELECT reclada_object.create_subclass('{
 
 --{ 11 User
 SELECT reclada_object.create_subclass('{
+    "GUID":"db0db7c0-9b25-4af0-8013-d2d98460cfff",
     "class": "RecladaObject",
     "attributes": {
         "newClass": "User",
