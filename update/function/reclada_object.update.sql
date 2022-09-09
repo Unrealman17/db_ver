@@ -30,10 +30,7 @@ DECLARE
     branch        uuid;
     revid         uuid;
     _parent_guid  uuid;
-    _parent_field text;
     _obj_guid     uuid;
-    _dup_behavior reclada.dp_bhvr;
-    _uni_field    text;
     _cnt          int;
     _tran_id      bigint;
     _guid_list    text;
@@ -79,13 +76,8 @@ BEGIN
     END IF;
 
     branch := _data->'branch';
-    SELECT reclada_revision.create(user_info->>'sub', branch, _obj_id, _tran_id) 
+    SELECT reclada.create_revision(user_info->>'sub', branch, _obj_id, _tran_id) 
         INTO revid;
-
-    SELECT prnt_guid, prnt_field
-    FROM reclada_object.get_parent_guid(_data,_class_name)
-        INTO _parent_guid,
-            _parent_field;
 
     IF (_parent_guid IS NULL) THEN
         _parent_guid := old_obj->>'parentGUID';

@@ -17,20 +17,14 @@ DECLARE
     res           jsonb = '{}'::jsonb;
     affected      uuid[];
     inserted      uuid[];
-    inserted_from_draft uuid[];
-    _dup_behavior reclada.dp_bhvr;
-    _is_cascade   boolean;
-    _uni_field    text;
     _parent_guid  uuid;
-    _parent_field   text;
     skip_insert     boolean;
     notify_res      jsonb;
     _cnt             int;
-    _new_parent_guid       uuid;
-    _rel_type       text := 'GUID changed for dupBehavior';
+    _new_parent_guid uuid;
     _guid_list      text;
     _component_guid uuid;
-    _row_count              int;
+    _row_count      int;
     _f_name         text = 'reclada_object.create';
 BEGIN
 
@@ -162,28 +156,8 @@ BEGIN
             RAISE EXCEPTION '%','Field "id" not allow!!!';
         END IF;
 
-        SELECT prnt_guid, prnt_field
-        FROM reclada_object.get_parent_guid(_data,_class_name)
-            INTO _parent_guid,
-                _parent_field;
         _obj_guid := _data->>'GUID';
 
-        IF (_parent_guid IS NOT NULL) THEN
-            SELECT
-                attrs->>'object',
-                attrs->>'dupBehavior',
-                attrs->>'isCascade'
-            FROM reclada.v_active_object
-            WHERE class_name = 'Relationship'
-                AND attrs->>'type'                      = _rel_type
-                AND (attrs->>'subject')::uuid  = _parent_guid
-                    INTO _new_parent_guid, _dup_behavior, _is_cascade;
-
-            IF _new_parent_guid IS NOT NULL THEN
-                _parent_guid := _new_parent_guid;
-            END IF;
-        END IF;
-        
         IF (NOT skip_insert) THEN           
             _obj_guid := _data->>'GUID';
             IF EXISTS (
@@ -208,19 +182,7 @@ BEGIN
             PERFORM reclada_object.refresh_mv(_class_name);
         END IF;
     END LOOP;
-
-    SELECT array_agg(_affected_objects->>'GUID')
-    FROM (
-        SELECT jsonb_array_elements(_affected_objects) AS _affected_objects
-        FROM (
-            SELECT reclada_object.create(data) AS _affected_objects
-            FROM reclada.draft
-            WHERE parent_guid = ANY (affected)
-        ) a
-    ) b
-    WHERE _affected_objects->>'GUID' IS NOT NULL
-        INTO inserted_from_draft;
-    affected := affected || inserted_from_draft;    
+    
 
     if _component_guid is null then
         res := array_to_json
@@ -244,8 +206,6 @@ BEGIN
                 )
             )::jsonb; 
     
-    DELETE FROM reclada.draft 
-        WHERE guid = ANY (affected);
 
     RETURN res;
 END;

@@ -12,31 +12,6 @@ SELECT reclada_object.create_subclass('{
     }
 }'::jsonb);
 
--- 1
-SELECT reclada_object.create_subclass('{
-    "class": "RecladaObject",
-    "attributes": {
-        "newClass": "Cat",
-        "properties": {
-            "name": {"type": "string"},
-            "weight": {"type": "number"},
-            "color": {"type": "string"}
-        },
-        "required": ["name","weight","color"]
-    }
-}'::jsonb);
-
-
-        SELECT reclada_object.create('{
-            "GUID":"7ED4BD4B-C114-451B-9F13-AE2BF6FEB5B2",
-            "class": "Cat",
-            "attributes": {
-                "name": "Richard",
-                "weight": 99,
-                "color": "green"
-            }
-        }'::jsonb);
---} 1
 -- 7
 SELECT reclada_object.create_subclass('{
     "class": "RecladaObject",
@@ -63,63 +38,6 @@ SELECT reclada_object.create_subclass('{
         "required": ["schema","function"]
     }
 }'::jsonb);
-
-    SELECT reclada_object.create('{
-            "GUID":"db0bf6f5-7eea-4dbd-9f46-e0535f7fb299",
-            "class": "DTOJsonSchema",
-            "attributes": {
-                "function": "reclada_object.get_query_condition_filter",
-                "schema": {
-                    "id": "expr",
-                    "type": "object",
-                    "required": [
-                        "value",
-                        "operator"
-                    ],
-                    "properties": {
-                        "value": {
-                            "type": "array",
-                            "items": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    },
-                                    {
-                                        "type": "number"
-                                    },
-                                    {
-                                        "$ref": "expr"
-                                    },
-                                    {
-                                        "type": "boolean"
-                                    },
-                                    {
-                                        "type": "array",
-                                        "items": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "string"
-                                                },
-                                                {
-                                                    "type": "number"
-                                                }
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                            "minItems": 1
-                        },
-                        "operator": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        }'::jsonb);
 
      SELECT reclada_object.create('{
             "GUID":"db0ad26e-a522-4907-a41a-a82a916fdcf9",

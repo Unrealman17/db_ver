@@ -267,7 +267,6 @@ DECLARE
     class_uuid          uuid;
     last_change         text;
     tran_id             bigint;
-    _filter             jsonb;
     _object_display     jsonb;
     _order_row          jsonb;
 BEGIN
@@ -276,7 +275,6 @@ BEGIN
 
     tran_id := (data->>'transactionID')::bigint;
     _class := data->>'class';
-    _filter = data->'filter';
 
     order_by_jsonb := data->'orderBy';
     IF ((order_by_jsonb IS NULL) OR
@@ -284,18 +282,15 @@ BEGIN
         (order_by_jsonb = '[]'::jsonb)) THEN
         order_by_jsonb := '[{"field": "id", "order": "ASC"}]'::jsonb;
     END IF;
-    
-    SELECT string_agg(
-        format(
-            E'obj.data#>''{%s}'' %s', 
-            case ver
-                when '2'
-                    then REPLACE(REPLACE(T.value->>'field','{', '"{' ),'}', '}"' )
-                else
-                    T.value->>'field'
-            end,
-            COALESCE(T.value->>'order', 'ASC')),
-        ' , ')
+
+    SELECT  string_agg(
+                    format(
+                        E'obj.data#>''{%s}'' %s', 
+                        T.value->>'field',
+                        COALESCE(T.value->>'order', 'ASC')
+                    ),
+                    ' , '
+            )
         FROM jsonb_array_elements(order_by_jsonb) T
         INTO order_by;
 
@@ -309,9 +304,7 @@ BEGIN
         offset_ := 0;
     END IF;
     
-    IF (_filter IS NOT NULL) THEN
-        query_conditions := reclada_object.get_query_condition_filter(_filter);
-    ELSEIF ver = '1' then
+    IF ver = '1' then
         class_uuid := reclada.try_cast_uuid(_class);
 
         IF (class_uuid IS NULL) THEN

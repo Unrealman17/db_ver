@@ -24,12 +24,10 @@ BEGIN
             REFRESH MATERIALIZED VIEW reclada.v_class_lite;
         WHEN 'uniFields' THEN
             REFRESH MATERIALIZED VIEW reclada.v_class_lite;
-            REFRESH MATERIALIZED VIEW reclada.v_object_unifields;
         WHEN 'All' THEN
             REFRESH MATERIALIZED VIEW reclada.v_object_status;
             REFRESH MATERIALIZED VIEW reclada.v_user;
             REFRESH MATERIALIZED VIEW reclada.v_class_lite;
-            REFRESH MATERIALIZED VIEW reclada.v_object_unifields;
         ELSE
             NULL;
     END CASE;

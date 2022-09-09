@@ -5,7 +5,7 @@
  * Only valid input is expected.
 */
 
-DROP FUNCTION IF EXISTS reclada_object.jsonb_to_text(jsonb);
+DROP FUNCTION IF EXISTS reclada_object.jsonb_to_text;
 CREATE OR REPLACE FUNCTION reclada_object.jsonb_to_text(data jsonb)
 RETURNS text AS $$
     SELECT

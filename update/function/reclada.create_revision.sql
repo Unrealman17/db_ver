@@ -1,5 +1,5 @@
-DROP FUNCTION IF EXISTS reclada_revision.create;
-CREATE OR REPLACE FUNCTION reclada_revision.create
+DROP FUNCTION IF EXISTS reclada.create_revision;
+CREATE OR REPLACE FUNCTION reclada.create_revision
 (
     userid  varchar, 
     branch  uuid, 

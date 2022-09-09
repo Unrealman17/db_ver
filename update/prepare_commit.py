@@ -1,3 +1,4 @@
+import subprocess
 from update_db import get_version_from_commit
 from update_db import DBHelper
 from update_db import rmdir
@@ -34,7 +35,7 @@ if __name__ == "__main__":
     try:
         db_ver = db_helper.get_version_from_db()
         install_db = commit_ver != db_ver + 1
-    except ValueError:
+    except subprocess.CalledProcessError:
         # if database does not exist
         install_db = True
     if install_db:

@@ -126,8 +126,9 @@ class DBHelper:
 
     def run_file(self, file_name):
         cmd = self.psql_str(f'-f "{file_name}"')
-        return self.run_cmd(cmd)
-        #os.system(cmd)
+        subprocess.run(cmd, check=True)
+        # return self.run_cmd(cmd)
+        # os.system(cmd)
 
     def json_schema_install(self):
         file_name = 'patched.sql'
