@@ -101,12 +101,18 @@ BEGIN
         if _row_count > 1 then
             perform reclada.raise_exception('Can not match component objects',_f_name);
         elsif _row_count = 1 then
-            return _res;
+            return ('{"message": "Installing component, create_subclass('
+                        || _new_class
+                        || '), status = ''delete / create_subclass''"}'
+                    )::jsonb;
         end if;
 
         insert into dev.component_object( data, status  )
                 select _data, 'create_subclass';
-            return _res;
+            return ('{"message": "Installing component, create_subclass('
+                        || _new_class
+                        || '), status = ''create_subclass''"}'
+                    )::jsonb;
     end if;
 
     FOR _class IN SELECT jsonb_array_elements_text(_class_list)

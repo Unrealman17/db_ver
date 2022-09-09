@@ -79,6 +79,8 @@ BEGIN
     SELECT reclada.create_revision(user_info->>'sub', branch, _obj_id, _tran_id) 
         INTO revid;
 
+    _parent_guid = reclada.try_cast_uuid(_data->>'parentGUID');
+    
     IF (_parent_guid IS NULL) THEN
         _parent_guid := old_obj->>'parentGUID';
     END IF;
