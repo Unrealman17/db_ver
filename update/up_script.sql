@@ -5,3 +5,8 @@
 */
 
 
+CREATE table public.num(id int, val text);
+
+\i 'view/public.v_cat.sql'
+\i 'view/public.v_green_cat.sql'
+
