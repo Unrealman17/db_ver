@@ -113,8 +113,7 @@ if __name__ == "__main__":
                             skipCopy = False
                             continue
                         if sc != sd:
-                            input("!!! down.sql invalid !!! table data has changed . . .")
-                            break
+                            raise Exception("!!! down.sql invalid !!! table data has changed . . .")
                     else:
                         if skipCopy:
                             continue
