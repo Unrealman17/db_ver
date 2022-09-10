@@ -10,13 +10,12 @@ BEGIN
     CREATE TEMP TABLE del_comp(
         tran_id bigint,
         id bigint,
-        guid uuid,
-        name text
+        guid uuid
     );
 
 
-    insert into del_comp(tran_id, id, guid, name)
-        SELECT    transaction_id, id, guid, name  
+    insert into del_comp(tran_id, id, guid)
+        SELECT    transaction_id, id, guid  
             from reclada.v_component 
                 where name = _component_name;
 
@@ -25,10 +24,13 @@ BEGIN
 
     DELETE from del_comp;
 
-    insert into del_comp(tran_id, id, guid, name)
-        SELECT    transaction_id, id, guid, name  
-            from reclada.v_component 
-                where name = _component_name;
+    insert into del_comp(tran_id, id, guid)
+        SELECT    transaction_id, id, obj_id  
+            from reclada.v_object obj
+                WHERE obj.class_name = 'Component'
+                    and obj.attrs->>'name' = _component_name
+                    ORDER BY ID DESC
+                    limit 1;
     
     update reclada.object u
         SET active = true
