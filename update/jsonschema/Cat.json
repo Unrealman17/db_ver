@@ -1,0 +1,27 @@
+{
+    "forClass": "Cat",
+    "parentList": [
+        "ab9ab26c-8902-43dd-9f1a-743b14a89825"
+    ],
+    "schema": {
+        "$defs": {},
+        "properties": {
+            "color": {
+                "type": "string"
+            },
+            "name": {
+                "type": "string"
+            },
+            "weight": {
+                "type": "number"
+            }
+        },
+        "required": [
+            "name",
+            "weight",
+            "color"
+        ],
+        "type": "object"
+    },
+    "version": 1
+}
