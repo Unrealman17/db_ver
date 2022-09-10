@@ -8,7 +8,7 @@ objects_schemas AS (
             (obj.attributes->>'version')::bigint AS version,
             obj.created_time,
             obj.attributes,
-            obj.status
+            obj.active
 	    FROM reclada.object obj
    	    WHERE class = reclada_object.get_jsonschema_guid()
 ),
@@ -57,7 +57,7 @@ SELECT
         obj.version,
         obj.created_time,
         obj.attributes,
-        obj.status,
+        obj.active,
         def.default_value
     FROM objects_schemas obj
         LEFT JOIN default_field def

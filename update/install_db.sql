@@ -1,9 +1,9 @@
--- version = 2
--- 2022-09-09 19:46:49.986984--
+-- version = 1
+-- 2022-09-10 09:27:20.370466--
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 13.4
+-- Dumped from database version 13.4 (Debian 13.4-1.pgdg100+1)
 -- Dumped by pg_dump version 14.4
 
 SET statement_timeout = 0;
@@ -16,34 +16,6 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
-
---
--- Name: aws_commons; Type: EXTENSION; Schema: -; Owner: -
---
-
-CREATE EXTENSION IF NOT EXISTS aws_commons WITH SCHEMA public;
-
-
---
--- Name: EXTENSION aws_commons; Type: COMMENT; Schema: -; Owner: -
---
-
-COMMENT ON EXTENSION aws_commons IS 'Common data types across AWS services';
-
-
---
--- Name: aws_lambda; Type: EXTENSION; Schema: -; Owner: -
---
-
-CREATE EXTENSION IF NOT EXISTS aws_lambda WITH SCHEMA public;
-
-
---
--- Name: EXTENSION aws_lambda; Type: COMMENT; Schema: -; Owner: -
---
-
-COMMENT ON EXTENSION aws_lambda IS 'AWS Lambda integration';
-
 
 --
 -- Name: dev; Type: SCHEMA; Schema: -; Owner: -
@@ -127,100 +99,35 @@ BEGIN
         tran_id bigint,
         id bigint,
         guid uuid,
-        name text,
-        rev_num bigint
+        name text
     );
 
-    with recursive t as (
-        SELECT  transaction_id, 
-                id, 
-                guid, 
-                name, 
-                null as pre, 
-                null::bigint as pre_id,
-                0 as lvl,
-                c.revision_num
-            from reclada.v_component c
-                WHERE not exists(
-                        SELECT 
-                            FROM reclada.v_component_object co 
-                                where co.obj_id = c.guid
-                    )
-        union
-        select  cc.transaction_id, 
-                cc.id, 
-                cc.guid, 
-                cc.name, 
-                t.name as pre, 
-                t.id as pre_id,
-                t.lvl+1 as lvl,
-                cc.revision_num
-            from t
-            join reclada.v_component_object co
-                on t.guid = co.component_guid
-            join reclada.v_component cc
-                on cc.id = co.id
-    ),
-    h as (
-        SELECT  t.transaction_id, 
-                t.id, 
-                t.guid, 
-                t.name, 
-                t.pre, 
-                t.pre_id, 
-                t.lvl,
-                t.revision_num
-            FROM t
-                where name = _component_name
-        union
-        select  t.transaction_id, 
-                t.id, 
-                t.guid, 
-                t.name, 
-                t.pre, 
-                t.pre_id, 
-                t.lvl,
-                null revision_num
-            FROM h
-            JOIN t
-                on t.pre_id = h.id
-    )
-    insert into del_comp(tran_id, id, guid, name, rev_num)
-        SELECT    transaction_id, id, guid, name, revision_num  
-            FROM h;
+
+    insert into del_comp(tran_id, id, guid, name)
+        SELECT    transaction_id, id, guid, name  
+            from reclada.v_component 
+                where name = _component_name;
 
     DELETE from reclada.object 
         WHERE transaction_id  in (select tran_id from del_comp);
 
+    DELETE from del_comp;
 
-    with recursive t as (
-        SELECT o.transaction_id, o.obj_id
-            from reclada.v_object o
-                WHERE o.obj_id = (SELECT guid from del_comp where name = _component_name)
-                    AND coalesce(revision_num, 1) = coalesce(
-                            (SELECT rev_num from del_comp where name = _component_name), 
-                            1
-                        ) - 1
-        union 
-        select o.transaction_id, o.obj_id
-            from t
-            JOIN reclada.v_relationship r
-                ON r.parent_guid = t.obj_id
-                    AND 'data of reclada-component' = r.type
-            join reclada.v_object o
-                on o.obj_id = r.subject
-                    and o.transaction_id >= t.transaction_id
-                    and o.class_name = 'Component'
-    )
+    insert into del_comp(tran_id, id, guid, name)
+        SELECT    transaction_id, id, guid, name  
+            from reclada.v_component 
+                where name = _component_name;
+    
     update reclada.object u
-        SET status = reclada_object.get_active_status_obj_id()
-        FROM t c
-            WHERE u.transaction_id = c.transaction_id
+        SET active = true
+        FROM del_comp c
+            WHERE u.transaction_id = c.tran_id
                 and NOT EXISTS (
                         SELECT from reclada.object o
-                            WHERE o.status != reclada_object.get_archive_status_obj_id()
+                            WHERE o.active 
                                 and o.guid = u.guid
                     );
+
     drop TABLE del_comp;
     return 'OK';
 END
@@ -720,46 +627,6 @@ $$;
 
 
 --
--- Name: create_revision(character varying, uuid, uuid, bigint); Type: FUNCTION; Schema: reclada; Owner: -
---
-
-CREATE FUNCTION reclada.create_revision(userid character varying, branch uuid, obj uuid, tran_id bigint DEFAULT reclada.get_transaction_id()) RETURNS uuid
-    LANGUAGE sql
-    AS $$
-    INSERT INTO reclada.object
-        (
-            class,
-            attributes,
-            transaction_id
-        )
-               
-        VALUES
-        (
-            (reclada_object.get_schema('revision')->>'GUID')::uuid,-- class,
-            format                    -- attributes
-            (                         
-                '{
-                    "num": %s,
-                    "user": "%s",
-                    "dateTime": "%s",
-                    "branch": "%s"
-                }',
-                (
-                    select count(*) + 1
-                        from reclada.object o
-                            where o.GUID = obj
-                ),
-                userid,
-                now(),
-                branch
-            )::jsonb,
-            tran_id
-        ) RETURNING (GUID)::uuid;
-    --nextval('reclada.reclada_revisions'),
-$$;
-
-
---
 -- Name: get_validation_schema(uuid); Type: FUNCTION; Schema: reclada; Owner: -
 --
 
@@ -991,35 +858,6 @@ BEGIN
                 _class_name  , 
                 _class_guid  ;
 END;
-$$;
-
-
---
--- Name: cast_jsonb_to_postgres(text, text, text); Type: FUNCTION; Schema: reclada_object; Owner: -
---
-
-CREATE FUNCTION reclada_object.cast_jsonb_to_postgres(key_path text, type text, type_of_array text DEFAULT 'text'::text) RETURNS text
-    LANGUAGE sql IMMUTABLE
-    AS $$
-SELECT
-        CASE
-            WHEN type = 'string' THEN
-                format(E'(%s#>>\'{}\')::text', key_path)
-            WHEN type = 'number' THEN
-                format(E'(%s)::numeric', key_path)
-            WHEN type = 'boolean' THEN
-                format(E'(%s)::boolean', key_path)
-            WHEN type = 'array' THEN
-                format(
-                    E'ARRAY(SELECT jsonb_array_elements_text(%s)::%s)',
-                    key_path,
-                     CASE
-                        WHEN type_of_array = 'string' THEN 'text'
-                        WHEN type_of_array = 'number' THEN 'numeric'
-                        WHEN type_of_array = 'boolean' THEN 'boolean'
-                     END
-                    )
-        END
 $$;
 
 
@@ -1514,7 +1352,7 @@ BEGIN
     WITH t AS
     (    
         UPDATE reclada.object u
-            SET status = reclada_object.get_archive_status_obj_id()
+            SET active = false
             FROM reclada.object o
                 LEFT JOIN
                 (   SELECT obj_id FROM reclada_object.get_guid_for_class(_class_name)
@@ -1532,7 +1370,7 @@ BEGIN
                     OR (v_obj_id IS NULL AND c.obj_id = o.class AND tran_id IS NULL)
                     OR (v_obj_id IS NULL AND c.obj_id IS NULL AND tran_id = o.transaction_id)
                 )
-                    AND o.status != reclada_object.get_archive_status_obj_id()
+                    AND o.active
                     RETURNING o.id
     ) 
         SELECT
@@ -1611,7 +1449,7 @@ BEGIN
 
     SELECT array_agg(distinct class_name)
     FROM reclada.v_object vo
-    WHERE class_name IN ('jsonschema','User','ObjectStatus')
+    WHERE class_name IN ('jsonschema','User')
         AND id = ANY(list_id)
         INTO _list_class_name;
     
@@ -1620,60 +1458,6 @@ BEGIN
 
     RETURN data;
 END;
-$$;
-
-
---
--- Name: get_active_status_obj_id(); Type: FUNCTION; Schema: reclada_object; Owner: -
---
-
-CREATE FUNCTION reclada_object.get_active_status_obj_id() RETURNS uuid
-    LANGUAGE sql STABLE
-    AS $$
-    select obj_id 
-        from reclada.v_object_status 
-            where caption = 'active'
-$$;
-
-
---
--- Name: get_archive_status_obj_id(); Type: FUNCTION; Schema: reclada_object; Owner: -
---
-
-CREATE FUNCTION reclada_object.get_archive_status_obj_id() RETURNS uuid
-    LANGUAGE sql STABLE
-    AS $$
-    select obj_id 
-        from reclada.v_object_status 
-            where caption = 'archive'
-$$;
-
-
---
--- Name: get_condition_array(jsonb, text); Type: FUNCTION; Schema: reclada_object; Owner: -
---
-
-CREATE FUNCTION reclada_object.get_condition_array(data jsonb, key_path text) RETURNS text
-    LANGUAGE sql IMMUTABLE
-    AS $$
-    SELECT
-    CONCAT(
-        key_path,
-        ' ', COALESCE(data->>'operator', '='), ' ',
-        format(E'\'%s\'::jsonb', data->'object'#>>'{}')) || CASE WHEN data->>'operator'='<@' THEN ' AND ' || key_path || ' != ''[]''::jsonb' ELSE '' END
-$$;
-
-
---
--- Name: get_default_user_obj_id(); Type: FUNCTION; Schema: reclada_object; Owner: -
---
-
-CREATE FUNCTION reclada_object.get_default_user_obj_id() RETURNS uuid
-    LANGUAGE sql STABLE
-    AS $$
-    select obj_id 
-        from reclada.v_user 
-            where login = 'dev'
 $$;
 
 
@@ -1710,64 +1494,6 @@ $$;
 
 
 --
--- Name: get_query_condition(jsonb, text); Type: FUNCTION; Schema: reclada_object; Owner: -
---
-
-CREATE FUNCTION reclada_object.get_query_condition(data jsonb, key_path text) RETURNS text
-    LANGUAGE plpgsql STABLE
-    AS $$
-DECLARE
-    key          text;
-    operator     text;
-    value        text;
-    res          text;
-
-BEGIN
-    IF (data IS NULL OR data = 'null'::jsonb) THEN
-        RAISE EXCEPTION 'There is no condition';
-    END IF;
-
-    IF (jsonb_typeof(data) = 'object') THEN
-
-        IF (data->'object' IS NULL OR data->'object' = ('null'::jsonb)) THEN
-            RAISE EXCEPTION 'There is no object field';
-        END IF;
-
-        IF (jsonb_typeof(data->'object') = 'object') THEN
-            operator :=  data->>'operator';
-            IF operator = '=' then
-                key := reclada_object.cast_jsonb_to_postgres(key_path, 'string' );
-                RETURN (key || ' ' || operator || ' ''' || (data->'object')::text || '''');
-            ELSE
-                RAISE EXCEPTION 'The input_jsonb->''object'' can not contain jsonb object';
-            END If;
-        END IF;
-
-        IF (jsonb_typeof(data->'operator') != 'string' AND data->'operator' IS NOT NULL) THEN
-            RAISE EXCEPTION 'The input_jsonb->''operator'' must contain string';
-        END IF;
-
-        IF (jsonb_typeof(data->'object') = 'array') THEN
-            res := reclada_object.get_condition_array(data, key_path);
-        ELSE
-            key := reclada_object.cast_jsonb_to_postgres(key_path, jsonb_typeof(data->'object'));
-            operator :=  data->>'operator';
-            value := reclada_object.jsonb_to_text(data->'object');
-            res := key || ' ' || operator || ' ' || value;
-        END IF;
-    ELSE
-        key := reclada_object.cast_jsonb_to_postgres(key_path, jsonb_typeof(data));
-        operator := '=';
-        value := reclada_object.jsonb_to_text(data);
-        res := key || ' ' || operator || ' ' || value;
-    END IF;
-    RETURN res;
-
-END;
-$$;
-
-
---
 -- Name: get_schema(text); Type: FUNCTION; Schema: reclada_object; Owner: -
 --
 
@@ -1784,252 +1510,6 @@ $$;
 
 
 --
--- Name: jsonb_to_text(jsonb); Type: FUNCTION; Schema: reclada_object; Owner: -
---
-
-CREATE FUNCTION reclada_object.jsonb_to_text(data jsonb) RETURNS text
-    LANGUAGE sql IMMUTABLE
-    AS $$
-    SELECT
-        CASE
-            WHEN jsonb_typeof(data) = 'string' THEN
-                format(E'\'%s\'', data#>>'{}')
-            WHEN jsonb_typeof(data) = 'array' THEN
-                format('ARRAY[%s]',
-                    (SELECT string_agg(
-                        reclada_object.jsonb_to_text(elem),
-                        ', ')
-                    FROM jsonb_array_elements(data) elem))
-            ELSE
-                data#>>'{}'
-        END
-$$;
-
-
---
--- Name: list(jsonb, boolean, text); Type: FUNCTION; Schema: reclada_object; Owner: -
---
-
-CREATE FUNCTION reclada_object.list(data jsonb, gui boolean DEFAULT false, ver text DEFAULT '1'::text) RETURNS jsonb
-    LANGUAGE plpgsql
-    AS $$
-DECLARE
-    _f_name TEXT = 'reclada_object.list';
-    _class              text;
-    attrs               jsonb;
-    order_by_jsonb      jsonb;
-    order_by            text;
-    limit_              text;
-    offset_             text;
-    query_conditions    text;
-    number_of_objects   int;
-    objects             jsonb;
-    res                 jsonb;
-    _exec_text          text;
-    _pre_query          text;
-    _from               text;
-    class_uuid          uuid;
-    last_change         text;
-    tran_id             bigint;
-    _object_display     jsonb;
-    _order_row          jsonb;
-BEGIN
-
-    perform reclada.validate_json(data, _f_name);
-
-    tran_id := (data->>'transactionID')::bigint;
-    _class := data->>'class';
-
-    order_by_jsonb := data->'orderBy';
-    IF ((order_by_jsonb IS NULL) OR
-        (order_by_jsonb = 'null'::jsonb) OR
-        (order_by_jsonb = '[]'::jsonb)) THEN
-        order_by_jsonb := '[{"field": "id", "order": "ASC"}]'::jsonb;
-    END IF;
-
-    SELECT  string_agg(
-                    format(
-                        E'obj.data#>''{%s}'' %s', 
-                        T.value->>'field',
-                        COALESCE(T.value->>'order', 'ASC')
-                    ),
-                    ' , '
-            )
-        FROM jsonb_array_elements(order_by_jsonb) T
-        INTO order_by;
-
-    limit_ := data->>'limit';
-    IF (limit_ IS NULL) THEN
-        limit_ := 500;
-    END IF;
-
-    offset_ := data->>'offset';
-    IF (offset_ IS NULL) THEN
-        offset_ := 0;
-    END IF;
-    
-    IF ver = '1' then
-        class_uuid := reclada.try_cast_uuid(_class);
-
-        IF (class_uuid IS NULL) THEN
-            SELECT v.obj_id
-                FROM reclada.v_class v
-                    WHERE _class = v.for_class
-                    ORDER BY v.version DESC
-                    limit 1 
-            INTO class_uuid;
-            IF (class_uuid IS NULL) THEN
-                perform reclada.raise_exception(
-                        format('Class not found: %s', _class),
-                        _f_name
-                    );
-            END IF;
-        end if;
-
-        attrs := data->'attributes' || '{}'::jsonb;
-
-        SELECT
-            string_agg(
-                format(
-                    E'(%s)',
-                    condition
-                ),
-                ' AND '
-            )
-            FROM (
-                SELECT
-                    format('obj.class_name = ''%s''', _class) AS condition
-                        where _class is not null
-                UNION
-                    SELECT format('obj.class = ''%s''', class_uuid) AS condition
-                        where class_uuid is not null
-                            and _class is null
-                UNION
-                    SELECT format('obj.transaction_id = %s', tran_id) AS condition
-                        where tran_id is not null
-                UNION
-                    SELECT CASE
-                            WHEN jsonb_typeof(data->'GUID') = 'array' THEN
-                            (
-                                SELECT string_agg
-                                    (
-                                        format(
-                                            E'(%s)',
-                                            reclada_object.get_query_condition(cond, E'data->''GUID''') -- TODO: change data->'GUID' to obj_id(GUID)
-                                        ),
-                                        ' AND '
-                                    )
-                                    FROM jsonb_array_elements(data->'GUID') AS cond
-                            )
-                            ELSE reclada_object.get_query_condition(data->'GUID', E'data->''GUID''') -- TODO: change data->'GUID' to obj_id(GUID)
-                        END AS condition
-                    WHERE coalesce(data->'GUID','null'::jsonb) != 'null'::jsonb
-                UNION
-                SELECT
-                    CASE
-                        WHEN jsonb_typeof(value) = 'array'
-                            THEN
-                                (
-                                    SELECT string_agg
-                                        (
-                                            format
-                                            (
-                                                E'(%s)',
-                                                reclada_object.get_query_condition(cond, format(E'attrs->%L', key))
-                                            ),
-                                            ' AND '
-                                        )
-                                        FROM jsonb_array_elements(value) AS cond
-                                )
-                        ELSE reclada_object.get_query_condition(value, format(E'attrs->%L', key))
-                    END AS condition
-                FROM jsonb_each(attrs)
-                WHERE attrs != ('{}'::jsonb)
-            ) conds
-        INTO query_conditions;
-    END IF;
-    -- TODO: add ELSE
-
-    _pre_query := '';
-    _from := 'reclada.v_active_object AS obj
-                        WHERE #@#@#where#@#@#';
-    _from := REPLACE(_from, '#@#@#where#@#@#', query_conditions  );
-
-    _exec_text := _pre_query ||
-                'SELECT to_jsonb(array_agg(t.data))
-                    FROM 
-                    (
-                        SELECT reclada.jsonb_merge(obj.data, obj.default_value) AS data
-                            FROM '
-                            || _from
-                            || ' 
-                            ORDER BY #@#@#orderby#@#@#
-                                OFFSET #@#@#offset#@#@#
-                                LIMIT #@#@#limit#@#@#
-                    ) AS t';
-    _exec_text := REPLACE(_exec_text, '#@#@#orderby#@#@#'  , order_by          );
-    _exec_text := REPLACE(_exec_text, '#@#@#offset#@#@#'   , offset_           );
-    _exec_text := REPLACE(_exec_text, '#@#@#limit#@#@#'    , limit_            );
-    -- RAISE NOTICE 'conds: %', _exec_text;
-
-    EXECUTE _exec_text
-        INTO objects;
-    objects := coalesce(objects,'[]'::jsonb);
-    IF gui THEN
-
-        _exec_text := '
-            SELECT  COUNT(1),
-                    TO_CHAR(
-                        MAX(
-                            GREATEST(
-                                obj.created_time, 
-                                (
-                                    SELECT  TO_TIMESTAMP(
-                                                MAX(date_time),
-                                                ''YYYY-MM-DD hh24:mi:ss.US TZH''
-                                            )
-                                        FROM reclada.v_revision vr
-                                            WHERE vr.obj_id = UUID(obj.attrs ->>''revision'')
-                                )
-                            )
-                        ),
-                        ''YYYY-MM-DD hh24:mi:ss.MS TZH''
-                    )
-                    FROM reclada.v_active_object obj 
-                        where #@#@#where#@#@#';
-
-        _exec_text := REPLACE(_exec_text, '#@#@#where#@#@#', query_conditions  );
-        -- raise notice '%',_exec_text;
-        EXECUTE _exec_text
-            INTO number_of_objects, last_change;
-        
-        IF _object_display IS NOT NULL then
-            res := jsonb_build_object(
-                    'lastСhange', last_change,    
-                    'number', number_of_objects,
-                    'objects', objects,
-                    'display', _object_display
-                );
-        ELSE
-            res := jsonb_build_object(
-                    'lastСhange', last_change,    
-                    'number', number_of_objects,
-                    'objects', objects
-            );
-        end if;
-    ELSE
-        
-        res := objects;
-    END IF;
-
-    RETURN res;
-
-
-END;
-$$;
-
-
---
 -- Name: refresh_mv(text); Type: FUNCTION; Schema: reclada_object; Owner: -
 --
 
@@ -2038,22 +1518,9 @@ CREATE FUNCTION reclada_object.refresh_mv(class_name text) RETURNS void
     AS $$
 
 BEGIN
-    CASE class_name
-        WHEN 'ObjectStatus' THEN
-            REFRESH MATERIALIZED VIEW reclada.v_object_status;
-        WHEN 'User' THEN
-            REFRESH MATERIALIZED VIEW reclada.v_user;
-        WHEN 'jsonschema' THEN
-            REFRESH MATERIALIZED VIEW reclada.v_class_lite;
-        WHEN 'uniFields' THEN
-            REFRESH MATERIALIZED VIEW reclada.v_class_lite;
-        WHEN 'All' THEN
-            REFRESH MATERIALIZED VIEW reclada.v_object_status;
-            REFRESH MATERIALIZED VIEW reclada.v_user;
-            REFRESH MATERIALIZED VIEW reclada.v_class_lite;
-        ELSE
-            NULL;
-    END CASE;
+
+    REFRESH MATERIALIZED VIEW reclada.v_class_lite;
+
 END;
 $$;
 
@@ -2074,7 +1541,6 @@ DECLARE
     schema        jsonb;
     old_obj       jsonb;
     branch        uuid;
-    revid         uuid;
     _parent_guid  uuid;
     _obj_guid     uuid;
     _cnt          int;
@@ -2121,10 +1587,6 @@ BEGIN
         perform reclada.raise_exception('Could not update object, no such id');
     END IF;
 
-    branch := _data->'branch';
-    SELECT reclada.create_revision(user_info->>'sub', branch, _obj_id, _tran_id) 
-        INTO revid;
-
     _parent_guid = reclada.try_cast_uuid(_data->>'parentGUID');
     
     IF (_parent_guid IS NULL) THEN
@@ -2134,22 +1596,22 @@ BEGIN
     with t as 
     (
         update reclada.object o
-            set status = reclada_object.get_archive_status_obj_id()
+            set active = false
                 where o.GUID = _obj_id
-                    and status != reclada_object.get_archive_status_obj_id()
+                    and active 
                         RETURNING id
     )
     INSERT INTO reclada.object( GUID,
                                 class,
-                                status,
+                                active,
                                 attributes,
                                 transaction_id,
                                 parent_guid
                               )
         select  v.obj_id,
                 _class_uuid,
-                reclada_object.get_active_status_obj_id(),--status 
-                _attrs || format('{"revision":"%s"}',revid)::jsonb,
+                true,--active 
+                _attrs ,
                 _tran_id,
                 _parent_guid
             FROM reclada.v_object v
@@ -2336,15 +1798,40 @@ CREATE TABLE public.num (
 
 CREATE TABLE reclada.object (
     id bigint NOT NULL,
-    status uuid DEFAULT reclada_object.get_active_status_obj_id() NOT NULL,
     attributes jsonb NOT NULL,
     transaction_id bigint NOT NULL,
     created_time timestamp with time zone DEFAULT now(),
-    created_by uuid DEFAULT reclada_object.get_default_user_obj_id(),
     class uuid NOT NULL,
     guid uuid DEFAULT public.uuid_generate_v4() NOT NULL,
-    parent_guid uuid
+    parent_guid uuid,
+    active boolean DEFAULT true
 );
+
+
+--
+-- Name: object_id_seq; Type: SEQUENCE; Schema: reclada; Owner: -
+--
+
+ALTER TABLE reclada.object ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME reclada.object_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 10
+);
+
+
+--
+-- Name: transaction_id; Type: SEQUENCE; Schema: reclada; Owner: -
+--
+
+CREATE SEQUENCE reclada.transaction_id
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
 
 
 --
@@ -2359,7 +1846,7 @@ CREATE MATERIALIZED VIEW reclada.v_class_lite AS
             ((obj_1.attributes ->> 'version'::text))::bigint AS version,
             obj_1.created_time,
             obj_1.attributes,
-            obj_1.status
+            obj_1.active
            FROM reclada.object obj_1
           WHERE (obj_1.class = reclada_object.get_jsonschema_guid())
         ), paths_to_default AS (
@@ -2393,40 +1880,10 @@ CREATE MATERIALIZED VIEW reclada.v_class_lite AS
     obj.version,
     obj.created_time,
     obj.attributes,
-    obj.status,
+    obj.active,
     def.default_value
    FROM (objects_schemas obj
      LEFT JOIN default_field def ON ((def.obj_id = obj.obj_id)))
-  WITH NO DATA;
-
-
---
--- Name: v_object_status; Type: MATERIALIZED VIEW; Schema: reclada; Owner: -
---
-
-CREATE MATERIALIZED VIEW reclada.v_object_status AS
- SELECT obj.id,
-    obj.guid AS obj_id,
-    (obj.attributes ->> 'caption'::text) AS caption,
-    obj.created_time,
-    obj.attributes AS attrs
-   FROM reclada.object obj
-  WHERE (obj.class IN ( SELECT reclada_object.get_guid_for_class('ObjectStatus'::text) AS get_guid_for_class))
-  WITH NO DATA;
-
-
---
--- Name: v_user; Type: MATERIALIZED VIEW; Schema: reclada; Owner: -
---
-
-CREATE MATERIALIZED VIEW reclada.v_user AS
- SELECT obj.id,
-    obj.guid AS obj_id,
-    (obj.attributes ->> 'login'::text) AS login,
-    obj.created_time,
-    obj.attributes AS attrs
-   FROM reclada.object obj
-  WHERE ((obj.class IN ( SELECT reclada_object.get_guid_for_class('User'::text) AS get_guid_for_class)) AND (obj.status = reclada_object.get_active_status_obj_id()))
   WITH NO DATA;
 
 
@@ -2438,12 +1895,6 @@ CREATE VIEW reclada.v_object AS
  SELECT t.id,
     t.guid AS obj_id,
     t.class,
-    ( SELECT ((r.attributes ->> 'num'::text))::bigint AS num
-           FROM reclada.object r
-          WHERE ((r.class IN ( SELECT reclada_object.get_guid_for_class('revision'::text) AS get_guid_for_class)) AND (r.guid = (NULLIF((t.attributes ->> 'revision'::text), ''::text))::uuid))
-         LIMIT 1) AS revision_num,
-    os.caption AS status_caption,
-    (NULLIF((t.attributes ->> 'revision'::text), ''::text))::uuid AS revision,
     t.created_time,
     t.attributes AS attrs,
     cl.for_class AS class_name,
@@ -2451,20 +1902,15 @@ CREATE VIEW reclada.v_object AS
     (( SELECT (json_agg(tmp.*) -> 0)
            FROM ( SELECT t.guid AS "GUID",
                     t.class,
-                    os.caption AS status,
+                    t.active,
                     t.attributes,
                     t.transaction_id AS "transactionID",
                     t.parent_guid AS "parentGUID",
-                    t.created_by AS "createdBy",
                     t.created_time AS "createdTime") tmp))::jsonb AS data,
-    u.login AS login_created_by,
-    t.created_by,
-    t.status,
+    t.active,
     t.transaction_id,
     t.parent_guid
-   FROM (((reclada.object t
-     LEFT JOIN reclada.v_object_status os ON ((t.status = os.obj_id)))
-     LEFT JOIN reclada.v_user u ON ((u.obj_id = t.created_by)))
+   FROM (reclada.object t
      LEFT JOIN reclada.v_class_lite cl ON ((cl.obj_id = t.class)));
 
 
@@ -2476,10 +1922,7 @@ CREATE VIEW reclada.v_active_object AS
  SELECT t.id,
     t.obj_id,
     t.class,
-    t.revision_num,
-    t.status,
-    t.status_caption,
-    t.revision,
+    t.active,
     t.created_time,
     t.class_name,
     t.attrs,
@@ -2488,58 +1931,7 @@ CREATE VIEW reclada.v_active_object AS
     t.parent_guid,
     t.default_value
    FROM reclada.v_object t
-  WHERE (t.status = reclada_object.get_active_status_obj_id());
-
-
---
--- Name: v_cat; Type: VIEW; Schema: public; Owner: -
---
-
-CREATE VIEW public.v_cat AS
- SELECT vo.obj_id AS guid,
-    (vo.data #>> '{attributes,name}'::text[]) AS name,
-    (vo.data #>> '{attributes,weight}'::text[]) AS weight,
-    (vo.data #>> '{attributes,color}'::text[]) AS color
-   FROM reclada.v_active_object vo
-  WHERE (vo.class_name = 'Cat'::text);
-
-
---
--- Name: v_green_cat; Type: VIEW; Schema: public; Owner: -
---
-
-CREATE VIEW public.v_green_cat AS
- SELECT vo.guid,
-    vo.name,
-    vo.weight
-   FROM public.v_cat vo
-  WHERE (vo.color = 'green'::text);
-
-
---
--- Name: object_id_seq; Type: SEQUENCE; Schema: reclada; Owner: -
---
-
-ALTER TABLE reclada.object ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
-    SEQUENCE NAME reclada.object_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 10
-);
-
-
---
--- Name: transaction_id; Type: SEQUENCE; Schema: reclada; Owner: -
---
-
-CREATE SEQUENCE reclada.transaction_id
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
+  WHERE t.active;
 
 
 --
@@ -2551,12 +1943,9 @@ CREATE VIEW reclada.v_class AS
     obj.obj_id,
     cl.for_class,
     cl.version,
-    obj.revision_num,
-    obj.status_caption,
-    obj.revision,
     obj.created_time,
     obj.attrs,
-    obj.status,
+    obj.active,
     obj.data,
     obj.parent_guid,
     cl.default_value
@@ -2575,12 +1964,9 @@ CREATE VIEW reclada.v_component AS
     (obj.attrs ->> 'repository'::text) AS repository,
     (obj.attrs ->> 'commitHash'::text) AS commit_hash,
     obj.transaction_id,
-    obj.revision_num,
-    obj.status_caption,
-    obj.revision,
     obj.created_time,
     obj.attrs,
-    obj.status,
+    obj.active,
     obj.data
    FROM reclada.v_active_object obj
   WHERE (obj.class_name = 'Component'::text);
@@ -2597,12 +1983,9 @@ CREATE VIEW reclada.v_relationship AS
     ((obj.attrs ->> 'object'::text))::uuid AS object,
     ((obj.attrs ->> 'subject'::text))::uuid AS subject,
     obj.parent_guid,
-    obj.revision_num,
-    obj.status_caption,
-    obj.revision,
     obj.created_time,
     obj.attrs,
-    obj.status,
+    obj.active,
     obj.data
    FROM reclada.v_active_object obj
   WHERE (obj.class_name = 'Relationship'::text);
@@ -2624,50 +2007,6 @@ CREATE VIEW reclada.v_component_object AS
    FROM ((reclada.v_component c
      JOIN reclada.v_relationship r ON (((r.parent_guid = c.guid) AND ('data of reclada-component'::text = r.type))))
      JOIN reclada.v_active_object o ON ((o.obj_id = r.subject)));
-
-
---
--- Name: v_dto_json_schema; Type: VIEW; Schema: reclada; Owner: -
---
-
-CREATE VIEW reclada.v_dto_json_schema AS
- SELECT obj.id,
-    obj.obj_id,
-    (obj.attrs ->> 'function'::text) AS function,
-    (obj.attrs -> 'schema'::text) AS schema,
-    obj.revision_num,
-    obj.status_caption,
-    obj.revision,
-    obj.created_time,
-    obj.attrs,
-    obj.status,
-    obj.data,
-    obj.parent_guid
-   FROM reclada.v_active_object obj
-  WHERE (obj.class_name = 'DTOJsonSchema'::text);
-
-
---
--- Name: v_revision; Type: VIEW; Schema: reclada; Owner: -
---
-
-CREATE VIEW reclada.v_revision AS
- SELECT obj.id,
-    obj.obj_id,
-    ((obj.attrs ->> 'num'::text))::bigint AS num,
-    (obj.attrs ->> 'branch'::text) AS branch,
-    (obj.attrs ->> 'user'::text) AS "user",
-    (obj.attrs ->> 'dateTime'::text) AS date_time,
-    (obj.attrs ->> 'old_num'::text) AS old_num,
-    obj.revision_num,
-    obj.status_caption,
-    obj.revision,
-    obj.created_time,
-    obj.attrs,
-    obj.status,
-    obj.data
-   FROM reclada.v_active_object obj
-  WHERE (obj.class_name = 'revision'::text);
 
 
 --
@@ -2724,13 +2063,11 @@ COPY public.num (id, val) FROM stdin;
 -- Data for Name: object; Type: TABLE DATA; Schema: reclada; Owner: -
 --
 
-COPY reclada.object (id, status, attributes, transaction_id, created_time, created_by, class, guid, parent_guid) FROM stdin;
-1	3748b1f7-b674-47ca-9ded-d011b16bbf7b	{"caption": "active"}	9	2021-09-22 14:50:50.411942+00	16d789c1-1b4e-4815-b70c-4ef060e90884	14af3113-18b5-4da8-af57-bdf37a6693aa	3748b1f7-b674-47ca-9ded-d011b16bbf7b	\N
-2	3748b1f7-b674-47ca-9ded-d011b16bbf7b	{"caption": "archive"}	53	2021-09-22 14:50:50.411942+00	16d789c1-1b4e-4815-b70c-4ef060e90884	14af3113-18b5-4da8-af57-bdf37a6693aa	9dc0a032-90d6-4638-956e-9cd64cd2900c	\N
-3	3748b1f7-b674-47ca-9ded-d011b16bbf7b	{"schema": {"type": "object", "required": ["forClass", "schema"], "properties": {"schema": {"type": "object"}, "forClass": {"type": "string"}, "parentList": {"type": "array", "items": {"type": "string"}}}}, "version": 1, "forClass": "jsonschema", "parentList": []}	32	2021-09-22 14:50:50.411942+00	16d789c1-1b4e-4815-b70c-4ef060e90884	5362d59b-82a1-4c7c-8ec3-07c256009fb0	5362d59b-82a1-4c7c-8ec3-07c256009fb0	\N
-4	3748b1f7-b674-47ca-9ded-d011b16bbf7b	{"schema": {"type": "object", "required": ["subject", "type", "object"], "properties": {"tags": {"type": "array", "items": {"type": "string"}}, "type": {"type": "string", "enum ": ["params"]}, "object": {"type": "string", "pattern": "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}"}, "disable": {"type": "boolean", "default": false}, "subject": {"type": "string", "pattern": "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}"}}}, "version": "1", "forClass": "Relationship", "parentList": []}	27	2021-09-22 14:53:04.158111+00	16d789c1-1b4e-4815-b70c-4ef060e90884	5362d59b-82a1-4c7c-8ec3-07c256009fb0	2d054574-8f7a-4a9a-a3b3-0400ad9d0489	\N
-5	3748b1f7-b674-47ca-9ded-d011b16bbf7b	{"schema": {"type": "object", "required": [], "properties": {"tags": {"type": "array", "items": {"type": "string"}}, "disable": {"type": "boolean", "default": false}}}, "version": 1, "forClass": "RecladaObject", "parentList": []}	31	2021-09-22 14:50:50.411942+00	16d789c1-1b4e-4815-b70c-4ef060e90884	5362d59b-82a1-4c7c-8ec3-07c256009fb0	ab9ab26c-8902-43dd-9f1a-743b14a89825	\N
-6	3748b1f7-b674-47ca-9ded-d011b16bbf7b	{"schema": {"type": "object", "required": ["caption"], "properties": {"tags": {"type": "array", "items": {"type": "string"}}, "caption": {"type": "string"}, "disable": {"type": "boolean", "default": false}}}, "version": 1, "forClass": "ObjectStatus", "parentList": []}	11	2021-09-22 14:50:50.411942+00	16d789c1-1b4e-4815-b70c-4ef060e90884	5362d59b-82a1-4c7c-8ec3-07c256009fb0	14af3113-18b5-4da8-af57-bdf37a6693aa	\N
+COPY reclada.object (id, attributes, transaction_id, created_time, class, guid, parent_guid, active) FROM stdin;
+1	{"schema": {"type": "object", "required": ["forClass", "schema"], "properties": {"schema": {"type": "object"}, "forClass": {"type": "string"}, "parentList": {"type": "array", "items": {"type": "string"}}}}, "version": 1, "forClass": "jsonschema", "parentList": []}	32	2021-09-22 14:50:50.411942+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	5362d59b-82a1-4c7c-8ec3-07c256009fb0	\N	t
+2	{"schema": {"type": "object", "required": ["subject", "type", "object"], "properties": {"type": {"type": "string", "enum ": ["params"]}, "object": {"type": "string", "pattern": "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}"}, "subject": {"type": "string", "pattern": "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}"}}}, "version": 1, "forClass": "Relationship", "parentList": []}	27	2021-09-22 14:53:04.158111+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	2d054574-8f7a-4a9a-a3b3-0400ad9d0489	\N	t
+3	{"schema": {"type": "object", "required": [], "properties": {}}, "version": 1, "forClass": "RecladaObject", "parentList": []}	31	2021-09-22 14:50:50.411942+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	ab9ab26c-8902-43dd-9f1a-743b14a89825	\N	t
+4	{"schema": {"type": "object", "$defs": {}, "required": ["name", "commitHash", "repository"], "properties": {"name": {"type": "string"}, "commitHash": {"type": "string"}, "repository": {"type": "string"}}}, "version": 1, "forClass": "Component", "parentList": ["ab9ab26c-8902-43dd-9f1a-743b14a89825"]}	6	2022-09-10 06:27:25.409281+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	d8585984-317b-4be8-bf50-99e561a17e03	\N	t
 \.
 
 
@@ -2766,14 +2103,14 @@ SELECT pg_catalog.setval('dev.ver_id_seq', 2, true);
 -- Name: object_id_seq; Type: SEQUENCE SET; Schema: reclada; Owner: -
 --
 
-SELECT pg_catalog.setval('reclada.object_id_seq', 37, true);
+SELECT pg_catalog.setval('reclada.object_id_seq', 4, true);
 
 
 --
 -- Name: transaction_id; Type: SEQUENCE SET; Schema: reclada; Owner: -
 --
 
-SELECT pg_catalog.setval('reclada.transaction_id', 18, true);
+SELECT pg_catalog.setval('reclada.transaction_id', 4, true);
 
 
 --
@@ -2822,13 +2159,6 @@ CREATE INDEX parent_guid_index ON reclada.object USING hash (parent_guid) WHERE 
 
 
 --
--- Name: relationship_type_subject_object_index; Type: INDEX; Schema: reclada; Owner: -
---
-
-CREATE INDEX relationship_type_subject_object_index ON reclada.object USING btree (((attributes ->> 'type'::text)), (((attributes ->> 'subject'::text))::uuid), status, (((attributes ->> 'object'::text))::uuid)) WHERE (((attributes ->> 'subject'::text) IS NOT NULL) AND ((attributes ->> 'object'::text) IS NOT NULL));
-
-
---
 -- Name: transaction_id_index; Type: INDEX; Schema: reclada; Owner: -
 --
 
@@ -2836,54 +2166,10 @@ CREATE INDEX transaction_id_index ON reclada.object USING btree (transaction_id)
 
 
 --
--- Name: SCHEMA public; Type: ACL; Schema: -; Owner: -
---
-
-
-
---
--- Name: FUNCTION invoke(function_name aws_commons._lambda_function_arn_1, payload json, invocation_type text, log_type text, context json, qualifier character varying, OUT status_code integer, OUT payload json, OUT executed_version text, OUT log_result text); Type: ACL; Schema: aws_lambda; Owner: -
---
-
-
-
---
--- Name: FUNCTION invoke(function_name aws_commons._lambda_function_arn_1, payload jsonb, invocation_type text, log_type text, context jsonb, qualifier character varying, OUT status_code integer, OUT payload jsonb, OUT executed_version text, OUT log_result text); Type: ACL; Schema: aws_lambda; Owner: -
---
-
-
-
---
--- Name: FUNCTION invoke(function_name text, payload json, region text, invocation_type text, log_type text, context json, qualifier character varying, OUT status_code integer, OUT payload json, OUT executed_version text, OUT log_result text); Type: ACL; Schema: aws_lambda; Owner: -
---
-
-
-
---
--- Name: FUNCTION invoke(function_name text, payload jsonb, region text, invocation_type text, log_type text, context jsonb, qualifier character varying, OUT status_code integer, OUT payload jsonb, OUT executed_version text, OUT log_result text); Type: ACL; Schema: aws_lambda; Owner: -
---
-
-
-
---
 -- Name: v_class_lite; Type: MATERIALIZED VIEW DATA; Schema: reclada; Owner: -
 --
 
 REFRESH MATERIALIZED VIEW reclada.v_class_lite;
-
-
---
--- Name: v_object_status; Type: MATERIALIZED VIEW DATA; Schema: reclada; Owner: -
---
-
-REFRESH MATERIALIZED VIEW reclada.v_object_status;
-
-
---
--- Name: v_user; Type: MATERIALIZED VIEW DATA; Schema: reclada; Owner: -
---
-
-REFRESH MATERIALIZED VIEW reclada.v_user;
 
 
 --

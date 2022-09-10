@@ -28,7 +28,6 @@ DECLARE
     schema        jsonb;
     old_obj       jsonb;
     branch        uuid;
-    revid         uuid;
     _parent_guid  uuid;
     _obj_guid     uuid;
     _cnt          int;
@@ -75,10 +74,6 @@ BEGIN
         perform reclada.raise_exception('Could not update object, no such id');
     END IF;
 
-    branch := _data->'branch';
-    SELECT reclada.create_revision(user_info->>'sub', branch, _obj_id, _tran_id) 
-        INTO revid;
-
     _parent_guid = reclada.try_cast_uuid(_data->>'parentGUID');
     
     IF (_parent_guid IS NULL) THEN
@@ -88,22 +83,22 @@ BEGIN
     with t as 
     (
         update reclada.object o
-            set status = reclada_object.get_archive_status_obj_id()
+            set active = false
                 where o.GUID = _obj_id
-                    and status != reclada_object.get_archive_status_obj_id()
+                    and active 
                         RETURNING id
     )
     INSERT INTO reclada.object( GUID,
                                 class,
-                                status,
+                                active,
                                 attributes,
                                 transaction_id,
                                 parent_guid
                               )
         select  v.obj_id,
                 _class_uuid,
-                reclada_object.get_active_status_obj_id(),--status 
-                _attrs || format('{"revision":"%s"}',revid)::jsonb,
+                true,--active 
+                _attrs ,
                 _tran_id,
                 _parent_guid
             FROM reclada.v_object v

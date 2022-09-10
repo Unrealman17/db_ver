@@ -2,18 +2,7 @@
     "forClass": "RecladaObject",
     "parentList": [],
     "schema": {
-        "properties": {
-            "disable": {
-                "default": false,
-                "type": "boolean"
-            },
-            "tags": {
-                "items": {
-                    "type": "string"
-                },
-                "type": "array"
-            }
-        },
+        "properties": {},
         "required": [],
         "type": "object"
     },

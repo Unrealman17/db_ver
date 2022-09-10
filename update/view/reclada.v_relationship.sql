@@ -7,12 +7,9 @@ AS
             (obj.attrs->>'object' )::uuid   as object,
             (obj.attrs->>'subject')::uuid   as subject,
             obj.parent_guid   ,
-            obj.revision_num  ,
-            obj.status_caption,
-            obj.revision      ,
             obj.created_time  ,
             obj.attrs         ,
-            obj.status        ,
+            obj.active        ,
             obj.data
 	FROM reclada.v_active_object obj
    	WHERE class_name = 'Relationship';

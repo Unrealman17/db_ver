@@ -15,21 +15,8 @@ CREATE OR REPLACE FUNCTION reclada_object.refresh_mv
 RETURNS void AS $$
 
 BEGIN
-    CASE class_name
-        WHEN 'ObjectStatus' THEN
-            REFRESH MATERIALIZED VIEW reclada.v_object_status;
-        WHEN 'User' THEN
-            REFRESH MATERIALIZED VIEW reclada.v_user;
-        WHEN 'jsonschema' THEN
-            REFRESH MATERIALIZED VIEW reclada.v_class_lite;
-        WHEN 'uniFields' THEN
-            REFRESH MATERIALIZED VIEW reclada.v_class_lite;
-        WHEN 'All' THEN
-            REFRESH MATERIALIZED VIEW reclada.v_object_status;
-            REFRESH MATERIALIZED VIEW reclada.v_user;
-            REFRESH MATERIALIZED VIEW reclada.v_class_lite;
-        ELSE
-            NULL;
-    END CASE;
+
+    REFRESH MATERIALIZED VIEW reclada.v_class_lite;
+
 END;
 $$ LANGUAGE PLPGSQL VOLATILE;
