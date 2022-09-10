@@ -11,3 +11,5 @@ drop view public.v_green_cat;
 \i 'view/public.v_cat.sql'
 \i 'view/public.v_green_cat.sql'
 
+
+\i 'function/dev.downgrade_component.sql'
