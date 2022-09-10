@@ -31,8 +31,7 @@ def db_install(db_helper:DBHelper = None):
     
     if max_dump_commit > -1:
         os.chdir('update')
-        db_helper.run_file('install_db.sql') # exec install_db.py
-        db_helper.install_component_db()
+        db_helper.run_file('install_db.sql') # exec install_db.py        
         os.chdir('..')
 
     need_update = not((max_dump_commit == db_helper.config_version - 1) 
@@ -57,5 +56,3 @@ if __name__ == "__main__":
 
     if need_update:
         raise Exception('Required version are not installed!')
-
-    db_helper.install_components()
