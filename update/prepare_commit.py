@@ -159,7 +159,6 @@ if __name__ == "__main__":
             with open(f'{for_class}.json','a') as f:
                 f.write(attrs)
         os.chdir('..')
-        db_helper.install_component_db() 
     else:
         print('skipped . . .')
         print('If evrything okay - run this script again before commit to update jsonschemas and install_db.sql')
