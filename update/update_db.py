@@ -60,12 +60,12 @@ class DBHelper:
     def get_commit_history(self, need_comment:bool = False):
         checkout(self.branch_db)
         
-        res = os.popen(f'git log --pretty=format:"%H" --first-parent 88fbf10796968bc249bcd36a0348436ff5953eda..').readlines()
+        res = os.popen(f'git log --pretty=format:"%H" --first-parent e1413f0d2d5c1eaab9620738679a96f1da732af3..').readlines()
         for i in range(len(res)):
             res[i]=res[i].strip()
         res.reverse()
         if need_comment:
-            res2 = os.popen('git log --pretty=format:"%B" --first-parent 88fbf10796968bc249bcd36a0348436ff5953eda..').readlines()
+            res2 = os.popen('git log --pretty=format:"%B" --first-parent e1413f0d2d5c1eaab9620738679a96f1da732af3..').readlines()
             while('\n' in res2):
                 res2.remove('\n')
             for i in range(len(res2)):
@@ -295,13 +295,7 @@ class DBHelper:
                                         UNION 
                                         SELECT guid    FROM reclada.v_component
                                     );''')
-        print(res)
-        res = self.run_cmd_scalar('''DELETE FROM reclada.object 
-                                    WHERE guid in 
-                                    (
-                                        SELECT r.obj_id
-                                            FROM reclada.v_revision r
-                                    );''')
+
         print(res)
         res = self.run_cmd_scalar('''UPDATE reclada.object 
                                     SET attributes = attributes - 'revision';''')

@@ -5,10 +5,7 @@ AS
             t.id                ,
             t.obj_id            ,
             t.class             ,
-            t.revision_num      ,
-            t.status            ,
-            t.status_caption    ,
-            t.revision          ,
+            t.active            ,
             t.created_time      ,
             t.class_name        ,
             t.attrs             ,
@@ -18,7 +15,7 @@ AS
             t.default_value
         FROM reclada.v_object as t
             -- object wasn't deleted
-            where t.status = reclada_object.get_active_status_obj_id()
+            where t.active
 ;
 -- select * from reclada.v_active_object limit 300
 -- select * from reclada.object

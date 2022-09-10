@@ -58,7 +58,7 @@ BEGIN
     WITH t AS
     (    
         UPDATE reclada.object u
-            SET status = reclada_object.get_archive_status_obj_id()
+            SET active = false
             FROM reclada.object o
                 LEFT JOIN
                 (   SELECT obj_id FROM reclada_object.get_guid_for_class(_class_name)
@@ -76,7 +76,7 @@ BEGIN
                     OR (v_obj_id IS NULL AND c.obj_id = o.class AND tran_id IS NULL)
                     OR (v_obj_id IS NULL AND c.obj_id IS NULL AND tran_id = o.transaction_id)
                 )
-                    AND o.status != reclada_object.get_archive_status_obj_id()
+                    AND o.active
                     RETURNING o.id
     ) 
         SELECT
@@ -155,7 +155,7 @@ BEGIN
 
     SELECT array_agg(distinct class_name)
     FROM reclada.v_object vo
-    WHERE class_name IN ('jsonschema','User','ObjectStatus')
+    WHERE class_name IN ('jsonschema','User')
         AND id = ANY(list_id)
         INTO _list_class_name;
     

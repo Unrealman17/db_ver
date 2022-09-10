@@ -7,12 +7,9 @@ AS
             obj.attrs->>'repository'   as repository,
             obj.attrs->>'commitHash'   as commit_hash,
             obj.transaction_id,
-            obj.revision_num  ,
-            obj.status_caption,
-            obj.revision      ,
             obj.created_time  ,
             obj.attrs         ,
-            obj.status        ,
+            obj.active        ,
             obj.data
 	FROM reclada.v_active_object obj
    	WHERE obj.class_name = 'Component';
