@@ -56,5 +56,3 @@ if __name__ == "__main__":
 
     if need_update:
         raise Exception('Required version are not installed!')
-
-    db_helper.install_components()
