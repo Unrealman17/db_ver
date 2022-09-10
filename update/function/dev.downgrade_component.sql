@@ -35,12 +35,7 @@ BEGIN
     update reclada.object u
         SET active = true
         FROM del_comp c
-            WHERE u.transaction_id = c.tran_id
-                and NOT EXISTS (
-                        SELECT from reclada.object o
-                            WHERE o.active 
-                                and o.guid = u.guid
-                    );
+            WHERE u.transaction_id = c.tran_id;
 
     drop TABLE del_comp;
     return 'OK';
