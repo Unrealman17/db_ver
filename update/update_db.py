@@ -60,12 +60,12 @@ class DBHelper:
     def get_commit_history(self, need_comment:bool = False):
         checkout(self.branch_db)
         
-        res = os.popen(f'git log --pretty=format:"%H" --first-parent 88fbf10796968bc249bcd36a0348436ff5953eda..').readlines()
+        res = os.popen(f'git log --pretty=format:"%H" --first-parent 38028ae3cdb7350c45135f30b16120194a7dd333..').readlines()
         for i in range(len(res)):
             res[i]=res[i].strip()
         res.reverse()
         if need_comment:
-            res2 = os.popen('git log --pretty=format:"%B" --first-parent 88fbf10796968bc249bcd36a0348436ff5953eda..').readlines()
+            res2 = os.popen('git log --pretty=format:"%B" --first-parent 38028ae3cdb7350c45135f30b16120194a7dd333..').readlines()
             while('\n' in res2):
                 res2.remove('\n')
             for i in range(len(res2)):
@@ -264,51 +264,8 @@ class DBHelper:
             self.replace_component(comp_name)
 
     def clear_db_from_components(self):
-        print('clear db from components...')
-        res = self.run_cmd_scalar('''DO
-                                $do$
-                                DECLARE
-                                    _objs  jsonb[];
-                                BEGIN
-                                    SELECT array_agg(distinct obj_data)
-                                        FROM reclada.v_component_object o
-                                        INTO _objs;
-                                    
-                                    PERFORM reclada_object.delete(cn)
-                                        FROM unnest(_objs) AS cn;
-                                END
-                                $do$;''')#to delete indexes
 
-        res = self.run_cmd_scalar('''WITH t as (
-                                    SELECT object, subject, guid 
-                                        FROM reclada.v_relationship
-                                            WHERE type = 'data of reclada-component'
-                                )
-                                DELETE FROM reclada.object 
-                                    WHERE guid in 
-                                    (   
-                                        SELECT object  FROM t
-                                        UNION
-                                        SELECT subject FROM t
-                                        UNION
-                                        SELECT guid    FROM t
-                                        UNION 
-                                        SELECT guid    FROM reclada.v_component
-                                    );''')
-        print(res)
-        res = self.run_cmd_scalar('''DELETE FROM reclada.object 
-                                    WHERE guid in 
-                                    (
-                                        SELECT r.obj_id
-                                            FROM reclada.v_revision r
-                                    );''')
-        print(res)
-        res = self.run_cmd_scalar('''UPDATE reclada.object 
-                                    SET attributes = attributes - 'revision';''')
-        print(res)
         res = self.run_cmd_scalar('''DELETE FROM dev.component_object;''')
-        print(res)
-        res = self.run_cmd_scalar('''DELETE FROM dev.meta_data;''')
         print(res)
         res = self.run_cmd_scalar('''SELECT reclada_object.refresh_mv('All');''')
         print(res)

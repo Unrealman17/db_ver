@@ -5,12 +5,9 @@ AS
             obj.obj_id        ,
             cl.for_class      ,
             cl.version        ,
-            obj.revision_num  ,
-            obj.status_caption,
-            obj.revision      ,
             obj.created_time  ,
             obj.attrs         ,
-            obj.status        ,
+            obj.active        ,
             obj.data          ,
             obj.parent_guid   ,
             cl.default_value
