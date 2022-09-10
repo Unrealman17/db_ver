@@ -60,12 +60,12 @@ class DBHelper:
     def get_commit_history(self, need_comment:bool = False):
         checkout(self.branch_db)
         
-        res = os.popen(f'git log --pretty=format:"%H" --first-parent ecc57d1a369795a1802ec3f9c87eda982ad1531b..').readlines()
+        res = os.popen(f'git log --pretty=format:"%H" --first-parent 38028ae3cdb7350c45135f30b16120194a7dd333..').readlines()
         for i in range(len(res)):
             res[i]=res[i].strip()
         res.reverse()
         if need_comment:
-            res2 = os.popen('git log --pretty=format:"%B" --first-parent ecc57d1a369795a1802ec3f9c87eda982ad1531b..').readlines()
+            res2 = os.popen('git log --pretty=format:"%B" --first-parent 38028ae3cdb7350c45135f30b16120194a7dd333..').readlines()
             while('\n' in res2):
                 res2.remove('\n')
             for i in range(len(res2)):
