@@ -134,31 +134,12 @@ if __name__ == "__main__":
         upgrade(db_helper)
     else:
         print("skipped downgrade test...")
-    input("Press Enter to update jsonschemas and install_db.sql . . .")
+    input("Press Enter to update install_db.sql . . .")
 
     if install_db:
         db_helper.clear_db_from_components()
         print('pg_dump...')
         db_helper.pg_dump('install_db.sql',t)
-
-        print('loading jsonschemas..')
-        sc = os.popen(db_helper.psql_str('-c "SELECT for_class,attrs FROM reclada.v_class;"')).readlines()
-        rmdir('jsonschema')
-        os.makedirs('jsonschema')
-        os.chdir('jsonschema')
-        for s in sc:
-            try:
-                for_class, attrs = s.replace('\n',' ').split(' | ')
-                attrs = json.dumps(json.loads(attrs),sort_keys=True,indent=4)
-                for_class = for_class.strip()
-            except Exception as e:
-                if type(e) in [JSONDecodeError,ValueError]:
-                    continue
-                else:
-                    raise e
-            with open(f'{for_class}.json','a') as f:
-                f.write(attrs)
-        os.chdir('..')
     else:
         print('skipped . . .')
         print('If evrything okay - run this script again before commit to update jsonschemas and install_db.sql')
