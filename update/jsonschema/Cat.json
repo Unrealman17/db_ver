@@ -1,27 +1,22 @@
 {
-    "forClass": "Cat",
-    "parentList": [
-        "ab9ab26c-8902-43dd-9f1a-743b14a89825"
-    ],
-    "schema": {
-        "$defs": {},
+    "class": "RecladaObject",
+    "attributes": {
+        "newClass": "Cat",
         "properties": {
-            "color": {
-                "type": "string"
-            },
             "name": {
                 "type": "string"
             },
             "weight": {
                 "type": "number"
+            },
+            "color": {
+                "type": "string"
             }
         },
         "required": [
             "name",
             "weight",
             "color"
-        ],
-        "type": "object"
-    },
-    "version": 1
+        ]
+    }
 }
