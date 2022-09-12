@@ -1,0 +1,22 @@
+{
+    "class": "RecladaObject",
+    "attributes": {
+        "newClass": "Cat",
+        "properties": {
+            "name": {
+                "type": "string"
+            },
+            "weight": {
+                "type": "number"
+            },
+            "color": {
+                "type": "string"
+            }
+        },
+        "required": [
+            "name",
+            "weight",
+            "color"
+        ]
+    }
+}

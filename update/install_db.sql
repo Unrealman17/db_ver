@@ -2051,6 +2051,11 @@ COPY reclada.object (id, attributes, transaction_id, created_time, class, guid, 
 2	{"schema": {"type": "object", "required": ["subject", "type", "object"], "properties": {"type": {"type": "string", "enum ": ["params"]}, "object": {"type": "string", "pattern": "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}"}, "subject": {"type": "string", "pattern": "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}"}}}, "version": 1, "forClass": "Relationship", "parentList": []}	1	2021-09-22 14:53:04.158111+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	2d054574-8f7a-4a9a-a3b3-0400ad9d0489	\N	t
 3	{"schema": {"type": "object", "required": [], "properties": {}}, "version": 1, "forClass": "RecladaObject", "parentList": []}	1	2021-09-22 14:50:50.411942+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	ab9ab26c-8902-43dd-9f1a-743b14a89825	\N	t
 4	{"schema": {"type": "object", "$defs": {}, "required": ["name", "commitHash", "repository"], "properties": {"name": {"type": "string"}, "commitHash": {"type": "string"}, "repository": {"type": "string"}}}, "version": 1, "forClass": "Component", "parentList": ["ab9ab26c-8902-43dd-9f1a-743b14a89825"]}	1	2022-09-10 06:27:25.409281+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	d8585984-317b-4be8-bf50-99e561a17e03	\N	t
+5	{"schema": {"type": "object", "$defs": {}, "required": ["name", "weight", "color"], "properties": {"name": {"type": "string"}, "color": {"type": "string"}, "weight": {"type": "number"}}}, "version": 1, "forClass": "Cat", "parentList": ["ab9ab26c-8902-43dd-9f1a-743b14a89825"]}	6	2022-09-12 12:59:18.501697+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	978f27e3-bfee-4c94-99a5-8af9404ec3f8	\N	t
+6	{"type": "data of reclada-component", "object": "2752ad51-49b3-4a7c-9bdc-757c4a3f0f9a", "subject": "978f27e3-bfee-4c94-99a5-8af9404ec3f8"}	6	2022-09-12 12:59:18.501697+00	2d054574-8f7a-4a9a-a3b3-0400ad9d0489	38460db1-0c3f-4ab0-9e7f-c0999f2f6e3e	2752ad51-49b3-4a7c-9bdc-757c4a3f0f9a	t
+7	{"name": "Alex", "color": "white", "weight": 42}	6	2022-09-12 12:59:18.501697+00	978f27e3-bfee-4c94-99a5-8af9404ec3f8	9a6a0461-071b-4f89-9f6c-22829b137437	\N	t
+8	{"type": "data of reclada-component", "object": "2752ad51-49b3-4a7c-9bdc-757c4a3f0f9a", "subject": "9a6a0461-071b-4f89-9f6c-22829b137437"}	6	2022-09-12 12:59:18.501697+00	2d054574-8f7a-4a9a-a3b3-0400ad9d0489	4f8ef505-c445-4f3a-9285-177dfe4f35d1	2752ad51-49b3-4a7c-9bdc-757c4a3f0f9a	t
+9	{"name": "db", "commitHash": "6dbd97040baf8768eb908a7cc200cd6ab1bad45b", "repository": "https://github.com/Unrealman17/db_ver"}	6	2022-09-12 12:59:18.501697+00	d8585984-317b-4be8-bf50-99e561a17e03	2752ad51-49b3-4a7c-9bdc-757c4a3f0f9a	\N	t
 \.
 
 
@@ -2058,7 +2063,7 @@ COPY reclada.object (id, attributes, transaction_id, created_time, class, guid, 
 -- Name: component_object_id_seq; Type: SEQUENCE SET; Schema: dev; Owner: -
 --
 
-SELECT pg_catalog.setval('dev.component_object_id_seq', 1, true);
+SELECT pg_catalog.setval('dev.component_object_id_seq', 3, true);
 
 
 --
@@ -2079,21 +2084,21 @@ SELECT pg_catalog.setval('dev.t_dbg_id_seq', 1, true);
 -- Name: ver_id_seq; Type: SEQUENCE SET; Schema: dev; Owner: -
 --
 
-SELECT pg_catalog.setval('dev.ver_id_seq', 1, true);
+SELECT pg_catalog.setval('dev.ver_id_seq', 2, true);
 
 
 --
 -- Name: object_id_seq; Type: SEQUENCE SET; Schema: reclada; Owner: -
 --
 
-SELECT pg_catalog.setval('reclada.object_id_seq', 4, true);
+SELECT pg_catalog.setval('reclada.object_id_seq', 14, true);
 
 
 --
 -- Name: transaction_id; Type: SEQUENCE SET; Schema: reclada; Owner: -
 --
 
-SELECT pg_catalog.setval('reclada.transaction_id', 4, true);
+SELECT pg_catalog.setval('reclada.transaction_id', 6, true);
 
 
 --
