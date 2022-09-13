@@ -1,0 +1,9 @@
+{
+    "GUID": "C74E95F8-347C-4934-9E77-7E3CF6F9F4E3",
+    "class": "Cat",
+    "attributes": {
+        "name": "Vovan",
+        "weight": 78,
+        "color": "green"
+    }
+}
