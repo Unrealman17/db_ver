@@ -98,7 +98,7 @@ if __name__ == "__main__":
                             if (ldd[i] != lcd[j]):
                                 good = False
                                 d.append(ldd[i])
-                                input("!!! down.sql invalid !!! found new unexpected db-object")
+                                raise Exception("!!! down.sql invalid !!! found new unexpected db-object")
                                 break
 
                 else: # COPY
@@ -108,7 +108,7 @@ if __name__ == "__main__":
                             while (ldd[i] != '\n'):
                                 i += 1
                                 if i == len(ldd):
-                                    input("!!! down.sql invalid !!!")
+                                    raise Exception("!!! down.sql invalid !!!")
                                     break
                             skipCopy = False
                             continue
@@ -123,7 +123,7 @@ if __name__ == "__main__":
                 print("down.sql invalid:")
                 for i in range(0,len(d),2):
                     print(d[i] + d[i+1])
-                input("!!! down.sql invalid !!! Enter to continue . . .")
+                raise Exception("!!! down.sql invalid !!! Enter to continue . . .")
             else:
                 print("\n\nOK: down.sql valid\n\n")
 

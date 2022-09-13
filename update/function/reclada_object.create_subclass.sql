@@ -87,6 +87,7 @@ BEGIN
         'class'         , 'jsonschema'   ,
         'GUID'          , _obj_guid::text,
         'transactionID' , _tran_id       ,
+        'parentGUID'    , _data->>'parentGUID',
         'attributes'    , jsonb_build_object(
                 'forClass'  , _new_class ,
                 'schema'    , _schema
