@@ -43,7 +43,9 @@ BEGIN
             where status = 'need to check';
 
     update dev.component_object
-        set data = data || jsonb_build_object('transactionID',_tran_id)
+        set data = data 
+                    || jsonb_build_object('transactionID',_tran_id)
+                    || jsonb_build_object('parentGUID',(_comp_obj  ->>'GUID')::uuid)
             where status != 'delete';
 
     perform reclada_object.delete(data)
@@ -55,30 +57,11 @@ BEGIN
                         where status = 'create_subclass'
                         ORDER BY id)
     LOOP
-        perform reclada_object.create_relationship(
-                'data of reclada-component',
-                (_comp_obj ->>'GUID')::uuid ,
-                (cr.v ->>'GUID')::uuid ,
-                '{}'::jsonb            ,
-                (_comp_obj  ->>'GUID')::uuid,
-                _tran_id
-            )
-            from (select reclada_object.create_subclass(_data)#>'{0}' v) cr;
+        perform reclada_object.create_subclass(_data);
     END LOOP;
 
-    perform reclada_object.create_relationship(
-                'data of reclada-component',
-                (_comp_obj     ->>'GUID')::uuid ,
-                (el.value ->>'GUID')::uuid ,
-                '{}'::jsonb                ,
-                (_comp_obj     ->>'GUID')::uuid,
-                _tran_id
-            )
+    perform reclada_object.create(c.data) v
         from dev.component_object c
-        cross join lateral (
-            select reclada_object.create(c.data) v
-        ) cr
-        cross join lateral jsonb_array_elements(cr.v) el
             where c.status = 'create';
 
     perform reclada_object.update(data)
@@ -95,17 +78,6 @@ BEGIN
     else
         perform reclada_object.create(_comp_obj);
     end if;
-
-    perform reclada_object.create_relationship(
-                'data of reclada-component',
-                c.guid ,
-                (_comp_obj     ->>'GUID')::uuid ,
-                '{}'::jsonb                ,
-                c.guid ,
-                _tran_id
-            )
-        from reclada.v_component c
-            where _parent_component_name = c.name;
 
     perform reclada_object.refresh_mv('All');
 
