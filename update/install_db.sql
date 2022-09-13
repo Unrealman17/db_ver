@@ -1,5 +1,5 @@
 -- version = 2
--- 2022-09-13 07:52:50.132655--
+-- 2022-09-13 09:29:01.485489--
 -- PostgreSQL database dump
 --
 
@@ -291,7 +291,7 @@ BEGIN
         perform reclada_object.create(_comp_obj);
     end if;
 
-    perform reclada_object.refresh_mv('All');
+    perform reclada_object.refresh_mv();
 
     return 'OK';
 
@@ -601,52 +601,6 @@ $$;
 
 
 --
--- Name: get_validation_schema(uuid); Type: FUNCTION; Schema: reclada; Owner: -
---
-
-CREATE FUNCTION reclada.get_validation_schema(class_guid uuid) RETURNS jsonb
-    LANGUAGE plpgsql STABLE
-    AS $$
-DECLARE
-    _schema_obj     jsonb;
-    _properties     jsonb = '{}'::jsonb;
-    _required       jsonb = '[]'::jsonb;
-    _parent_schema  jsonb ;
-    _parent_list    jsonb ;
-    _parent         uuid ;
-    _res            jsonb = '{}'::jsonb;
-    _f_name         text = 'reclada.get_validation_schema';
-BEGIN
-
-    SELECT reclada_object.get_schema(class_guid::text) 
-        INTO _schema_obj;
-
-    IF (_schema_obj IS NULL) THEN
-        perform reclada.raise_exception('No json schema available for ' || class_guid, _f_name);
-    END IF;
-
-    _parent_list = _schema_obj#>'{attributes,parentList}';
-
-    FOR _parent IN SELECT jsonb_array_elements_text(_parent_list ) 
-    LOOP
-        _parent_schema := reclada.get_validation_schema(_parent);
-        _properties := _properties || coalesce((_parent_schema->'properties'),'{}'::jsonb);
-        _required   := _required   || coalesce((_parent_schema->'required'  ),'[]'::jsonb);
-        _res := _res || _parent_schema ;  
-    END LOOP;
-    
-    _parent_schema := _schema_obj#>'{attributes,schema}';
-    _properties := _properties || coalesce((_parent_schema->'properties'),'{}'::jsonb);
-    _required   := _required   || coalesce((_parent_schema->'required'  ),'[]'::jsonb);
-    _res := _res || _parent_schema ;  
-    _res := _res || jsonb_build_object( 'required'  , _required,
-                                        'properties', _properties);
-    return _res;
-END;
-$$;
-
-
---
 -- Name: jsonb_deep_set(jsonb, text[], jsonb); Type: FUNCTION; Schema: reclada; Owner: -
 --
 
@@ -799,7 +753,11 @@ BEGIN
         perform reclada.raise_exception('The reclada object class is not specified',_f_name);
     END IF;
 
-    SELECT reclada_object.get_schema(_class) 
+    SELECT data
+        FROM reclada.v_class v
+            WHERE v.for_class = _class
+                OR v.obj_id::text = _class
+            LIMIT 1 
         INTO _schema_obj;
 
     IF (_schema_obj IS NULL) THEN
@@ -809,7 +767,7 @@ BEGIN
     _class_guid := (_schema_obj->>'GUID')::uuid;
 
     SELECT  _schema_obj #>> '{attributes,forClass}', 
-            reclada.get_validation_schema(_class_guid)
+            _schema_obj #>  '{attributes,schema}'
         INTO    _class_name, 
                 _valid_schema;
 
@@ -836,10 +794,10 @@ $$;
 
 
 --
--- Name: create(jsonb, jsonb); Type: FUNCTION; Schema: reclada_object; Owner: -
+-- Name: create(jsonb); Type: FUNCTION; Schema: reclada_object; Owner: -
 --
 
-CREATE FUNCTION reclada_object."create"(data_jsonb jsonb, user_info jsonb DEFAULT '{}'::jsonb) RETURNS jsonb
+CREATE FUNCTION reclada_object."create"(data_jsonb jsonb) RETURNS jsonb
     LANGUAGE plpgsql
     AS $$
 DECLARE
@@ -886,7 +844,6 @@ BEGIN
             select obj_id, for_class 
                 from reclada.v_class 
                     where _data->>'class' in (obj_id::text, for_class)
-                    ORDER BY version DESC 
                     LIMIT 1
                 into _class_uuid, _class_name;
 
@@ -1019,7 +976,7 @@ BEGIN
             affected := array_append( affected, _obj_guid);
             inserted := array_append( inserted, _obj_guid);
 
-            PERFORM reclada_object.refresh_mv(_class_name);
+            PERFORM reclada_object.refresh_mv();
         END IF;
     END LOOP;
     
@@ -1058,57 +1015,28 @@ $$;
 
 CREATE FUNCTION reclada_object.create_subclass(_data jsonb) RETURNS jsonb
     LANGUAGE plpgsql
-    AS $_$
+    AS $$
 DECLARE
-    _class_list     jsonb;
     _res            jsonb = '{}'::jsonb;
-    _class          text;
-    _properties     jsonb;
-    _p_properties   jsonb;
-    _required       jsonb;
-    _p_required     jsonb;
-    _parent_list    jsonb := '[]';
     _new_class      text;
-    attrs           jsonb;
-    class_schema    jsonb;
-    _version        integer;
-    class_guid      uuid;
-    _uniFields      jsonb;
-    _idx_name       text;
-    _f_list         text;
-    _field          text;
     _f_name         text = 'reclada_object.create_subclass';
-    _partial_clause text;
-    _field_name     text;
     _create_obj     jsonb;
     _component_guid uuid;
     _obj_guid       uuid;
     _row_count      int;
-    _defs           jsonb = '{}'::jsonb;
+    _schema         jsonb = '{}'::jsonb;
 	_tran_id        bigint;
 BEGIN
 
-    _class_list := _data->'class';
-    IF (_class_list IS NULL) THEN
-        perform reclada.raise_exception('The reclada object class is not specified',_f_name);
-    END IF;
-
     _obj_guid := COALESCE((_data->>'GUID')::uuid, public.uuid_generate_v4());
     _tran_id  := COALESCE((_data->>'transactionID')::bigint, reclada.get_transaction_id());
+    _new_class  := _data->>'class';
+    _schema     := _data->'schema';
 
-    IF (jsonb_typeof(_class_list) != 'array') THEN
-        _class_list := '[]'::jsonb || _class_list;
+    IF (_schema IS NULL) THEN
+        PERFORM reclada.raise_exception('The schema is required',_f_name);
     END IF;
 
-    attrs := _data->'attributes';
-    IF (attrs IS NULL) THEN
-        PERFORM reclada.raise_exception('The reclada object must have attributes',_f_name);
-    END IF;
-
-    _new_class  := attrs->>'newClass';
-    _properties := COALESCE(attrs -> 'properties','{}'::jsonb);
-    _required   := COALESCE(attrs -> 'required'  ,'[]'::jsonb);
-    _defs       := COALESCE(attrs -> '$defs'     ,'{}'::jsonb);
     SELECT guid 
         FROM dev.component 
         INTO _component_guid;
@@ -1118,10 +1046,7 @@ BEGIN
             set status = 'ok'
             where status = 'need to check'
                 and _new_class  =          data #>> '{attributes,forClass}'
-                and _properties = COALESCE(data #>  '{attributes,schema,properties}','{}'::jsonb)
-                and _required   = COALESCE(data #>  '{attributes,schema,required}'  ,'[]'::jsonb)
-                and _defs       = COALESCE(data #>  '{attributes,schema,$defs}'     ,'{}'::jsonb)
-                and jsonb_array_length(_class_list) = jsonb_array_length(data #> '{attributes,parentList}');
+                and _schema     = COALESCE(data #>  '{attributes,schema}','{}'::jsonb);
 
         GET DIAGNOSTICS _row_count := ROW_COUNT;
         if _row_count > 1 then
@@ -1163,68 +1088,22 @@ BEGIN
                     )::jsonb;
     end if;
 
-    FOR _class IN SELECT jsonb_array_elements_text(_class_list)
-    LOOP
-
-        SELECT reclada_object.get_schema(_class) 
-            INTO class_schema;
-
-        IF (class_schema IS NULL) THEN
-            perform reclada.raise_exception('No json schema available for ' || _class, _f_name);
-        END IF;
-        
-        SELECT class_schema->>'GUID'
-            INTO class_guid;
-        
-        _parent_list := _parent_list || to_jsonb(class_guid);
-
-    END LOOP;
-   
-    SELECT max(version) + 1
-    FROM reclada.v_class_lite v
-    WHERE v.for_class = _new_class
-        INTO _version;
-
-    _version := coalesce(_version,1);
-
     _create_obj := jsonb_build_object(
         'class'         , 'jsonschema'   ,
         'GUID'          , _obj_guid::text,
         'transactionID' , _tran_id       ,
         'attributes'    , jsonb_build_object(
                 'forClass'  , _new_class ,
-                'version'   , _version   ,
-                'parentList',_parent_list,
-                'schema'    , jsonb_build_object(
-                    'type'      , 'object'   ,
-                    '$defs'     , _defs      ,
-                    'properties', _properties,
-                    'required'  , _required  
-                )
+                'schema'    , _schema
             )
         );
         
-    IF ( jsonb_typeof(attrs->'dupChecking') = 'array' ) THEN
-        _create_obj := jsonb_set(_create_obj, '{attributes,dupChecking}',attrs->'dupChecking');
-        IF ( jsonb_typeof(attrs->'dupBehavior') = 'string' ) THEN
-            _create_obj := jsonb_set(_create_obj, '{attributes,dupBehavior}',attrs->'dupBehavior');
-        END IF;
-        IF ( jsonb_typeof(attrs->'isCascade') = 'boolean' ) THEN
-            _create_obj := jsonb_set(_create_obj, '{attributes,isCascade}',attrs->'isCascade');
-        END IF;
-        IF ( jsonb_typeof(attrs->'copyField') = 'string' ) THEN
-            _create_obj := jsonb_set(_create_obj, '{attributes,copyField}',attrs->'copyField');
-        END IF;
-    END IF;
-    IF ( jsonb_typeof(attrs->'parentField') = 'string' ) THEN
-        _create_obj := jsonb_set(_create_obj, '{attributes,parentField}',attrs->'parentField');
-    END IF;
     select reclada_object.create(_create_obj)
         into _res;
-    PERFORM reclada_object.refresh_mv('uniFields');
+    PERFORM reclada_object.refresh_mv();
     return _res;
 END;
-$_$;
+$$;
 
 
 --
@@ -1377,8 +1256,7 @@ BEGIN
         AND id = ANY(list_id)
         INTO _list_class_name;
     
-    PERFORM reclada_object.refresh_mv(cn)
-        FROM unnest( _list_class_name ) AS cn;
+    PERFORM reclada_object.refresh_mv();
 
     RETURN data;
 END;
@@ -1418,26 +1296,10 @@ $$;
 
 
 --
--- Name: get_schema(text); Type: FUNCTION; Schema: reclada_object; Owner: -
+-- Name: refresh_mv(); Type: FUNCTION; Schema: reclada_object; Owner: -
 --
 
-CREATE FUNCTION reclada_object.get_schema(_class text) RETURNS jsonb
-    LANGUAGE sql STABLE
-    AS $$
-    SELECT data
-    FROM reclada.v_class v
-    WHERE v.for_class = _class
-        OR v.obj_id::text = _class
-    ORDER BY v.version DESC
-    LIMIT 1
-$$;
-
-
---
--- Name: refresh_mv(text); Type: FUNCTION; Schema: reclada_object; Owner: -
---
-
-CREATE FUNCTION reclada_object.refresh_mv(class_name text) RETURNS void
+CREATE FUNCTION reclada_object.refresh_mv() RETURNS void
     LANGUAGE plpgsql
     AS $$
 
@@ -1559,11 +1421,7 @@ BEGIN
                 on tt.id = v.id
 	            WHERE v.obj_id = _obj_id;
 
-    PERFORM reclada_object.refresh_mv(_class_name);
-
-    IF ( _class_name = 'jsonschema' AND jsonb_typeof(_attrs->'dupChecking') = 'array') THEN
-        PERFORM reclada_object.refresh_mv('uniFields');
-    END IF; 
+    PERFORM reclada_object.refresh_mv();
 
     SELECT reclada.jsonb_merge(v.data, v.default_value) AS data
         FROM reclada.v_active_object v
@@ -1741,7 +1599,6 @@ CREATE MATERIALIZED VIEW reclada.v_class_lite AS
          SELECT obj_1.id,
             obj_1.guid AS obj_id,
             (obj_1.attributes ->> 'forClass'::text) AS for_class,
-            ((obj_1.attributes ->> 'version'::text))::bigint AS version,
             obj_1.created_time,
             obj_1.attributes,
             obj_1.active
@@ -1775,7 +1632,6 @@ CREATE MATERIALIZED VIEW reclada.v_class_lite AS
  SELECT obj.id,
     obj.obj_id,
     obj.for_class,
-    obj.version,
     obj.created_time,
     obj.attributes,
     obj.active,
@@ -1891,7 +1747,6 @@ CREATE VIEW reclada.v_class AS
  SELECT obj.id,
     obj.obj_id,
     cl.for_class,
-    cl.version,
     obj.created_time,
     obj.attrs,
     obj.active,
@@ -1975,7 +1830,7 @@ COPY dev.t_dbg (id, msg, time_when) FROM stdin;
 
 COPY dev.ver (id, ver, ver_str, upgrade_script, downgrade_script, run_at) FROM stdin;
 1	1	0	select public.raise_exception ('This is 1 version');	select public.raise_exception ('This is 1 version');	2021-09-22 14:50:17.832813+00
-2	2	\N	begin;\nSET CLIENT_ENCODING TO 'utf8';\nCREATE TEMP TABLE var_table\n    (\n        ver int,\n        upgrade_script text,\n        downgrade_script text\n    );\n    \ninsert into var_table(ver)\t\n    select max(ver) + 1\n        from dev.VER;\n        \nselect reclada.raise_exception('Can not apply this version!') \n    where not exists\n    (\n        select ver from var_table where ver = 2 --!!! write current version HERE !!!\n    );\n\nCREATE TEMP TABLE tmp\n(\n    id int GENERATED ALWAYS AS IDENTITY,\n    str text\n);\n--{ logging upgrade script\nCOPY tmp(str) FROM  'up.sql' delimiter E'';\nupdate var_table set upgrade_script = array_to_string(ARRAY((select str from tmp order by id asc)),chr(10),'');\ndelete from tmp;\n--} logging upgrade script\t\n\n--{ create downgrade script\nCOPY tmp(str) FROM  'down.sql' delimiter E'';\nupdate tmp set str = drp.v || scr.v\n    from tmp ttt\n    inner JOIN LATERAL\n    (\n        select substring(ttt.str from 4 for length(ttt.str)-4) as v\n    )  obj_file_name ON TRUE\n    inner JOIN LATERAL\n    (\n        select \tsplit_part(obj_file_name.v,'/',1) typ,\n                split_part(obj_file_name.v,'/',2) nam\n    )  obj ON TRUE\n        inner JOIN LATERAL\n    (\n        select case\n                when obj.typ = 'trigger'\n                    then\n                        (select 'DROP '|| obj.typ || ' IF EXISTS '|| obj.nam ||' ON ' || schm||'.'||tbl ||';' || E'\n'\n                        from (\n                            select n.nspname as schm,\n                                   c.relname as tbl\n                            from pg_trigger t\n                                join pg_class c on c.oid = t.tgrelid\n                                join pg_namespace n on n.oid = c.relnamespace\n                            where t.tgname = obj.nam) o)\n                else 'DROP '||obj.typ|| ' IF EXISTS '|| obj.nam || ' ;' || E'\n'\n                end as v\n    )  drp ON TRUE\n    inner JOIN LATERAL\n    (\n        select case \n                when obj.typ in ('function', 'procedure')\n                    then\n                        case \n                            when EXISTS\n                                (\n                                    SELECT 1 a\n                                        FROM pg_proc p \n                                        join pg_namespace n \n                                            on p.pronamespace = n.oid \n                                            where n.nspname||'.'||p.proname = obj.nam\n                                        LIMIT 1\n                                ) \n                                then (select pg_catalog.pg_get_functiondef(obj.nam::regproc::oid))||';'\n                            else ''\n                        end\n                when obj.typ = 'view'\n                    then\n                        case \n                            when EXISTS\n                                (\n                                    select 1 a \n                                        from pg_views v \n                                            where v.schemaname||'.'||v.viewname = obj.nam\n                                        LIMIT 1\n                                ) \n                                then E'CREATE OR REPLACE VIEW '\n                                        || obj.nam\n                                        || E'\nAS\n'\n                                        || (select pg_get_viewdef(obj.nam, true))\n                            else ''\n                        end\n                when obj.typ = 'trigger'\n                    then\n                        case\n                            when EXISTS\n                                (\n                                    select 1 a\n                                        from pg_trigger v\n                                            where v.tgname = obj.nam\n                                        LIMIT 1\n                                )\n                                then (select pg_catalog.pg_get_triggerdef(oid, true)\n                                        from pg_trigger\n                                        where tgname = obj.nam)||';'\n                            else ''\n                        end\n                else \n                    ttt.str\n            end as v\n    )  scr ON TRUE\n    where ttt.id = tmp.id\n        and tmp.str like '--{%/%}';\n    \nupdate var_table set downgrade_script = array_to_string(ARRAY((select str from tmp order by id asc)),chr(10),'');\t\n--} create downgrade script\ndrop table tmp;\n\n\n--{!!! write upgrare script HERE !!!\n\n--\tyou can use "i 'function/reclada_object.get_schema.sql'"\n--\tto run text script of functions\n \n/*\n  you can use "i 'function/reclada_object.get_schema.sql'"\n  to run text script of functions\n*/\n\nCREATE table public.num(id int, val text);\n\ni 'view/public.v_cat.sql'\ni 'view/public.v_green_cat.sql'\n\n\n\n SELECT reclada.raise_notice('Begin install component db...');\n                SELECT dev.begin_install_component('db','https://github.com/Unrealman17/db_ver','edf8992ad4059f1c874f3c4b206a0af035a12aa6');\n                SELECT reclada_object.create_subclass('{\n    "class": "RecladaObject",\n    "attributes": {\n        "newClass": "Cat",\n        "properties": {\n            "name": {\n                "type": "string"\n            },\n            "weight": {\n                "type": "number"\n            },\n            "color": {\n                "type": "string"\n            }\n        },\n        "required": [\n            "name",\n            "weight",\n            "color"\n        ]\n    }\n}');\nSELECT reclada_object.create('{\n    "GUID": "DB6796DF-97D4-45AB-991B-10D1A610159B",\n    "class": "Cat",\n    "attributes": {\n        "name": "Igor",\n        "weight": 34,\n        "color": "black"\n    }\n}');\nSELECT reclada_object.create('{\n    "GUID": "7ED4BD4B-C114-451B-9F13-AE2BF6FEB5B2",\n    "class": "Cat",\n    "attributes": {\n        "name": "Richard",\n        "weight": 99,\n        "color": "green"\n    }\n}');\nSELECT reclada_object.create('{\n    "GUID": "C74E95F8-347C-4934-9E77-7E3CF6F9F4E3",\n    "class": "Cat",\n    "attributes": {\n        "name": "Vovan",\n        "weight": 78,\n        "color": "green"\n    }\n}');\n\n                SELECT dev.finish_install_component();\n\n--}!!! write upgrare script HERE !!!\n\ninsert into dev.ver(ver,upgrade_script,downgrade_script)\n    select ver, upgrade_script, downgrade_script\n        from var_table;\n\n--{ testing downgrade script\nSAVEPOINT sp;\n    select dev.downgrade_version();\nROLLBACK TO sp;\n--} testing downgrade script\n\nselect reclada.raise_notice('OK, current version: ' \n                            || (select ver from var_table)::text\n                          );\ndrop table var_table;\n\ncommit;	-- you can use "--{function/reclada_object.get_schema}"\n-- to add current version of object to downgrade script\n\nDROP view IF EXISTS public.v_green_cat ;\n\nDROP view IF EXISTS public.v_cat ;\n\n\ndrop table public.num;	2022-09-13 04:53:02.050983+00
+2	2	\N	begin;\nSET CLIENT_ENCODING TO 'utf8';\nCREATE TEMP TABLE var_table\n    (\n        ver int,\n        upgrade_script text,\n        downgrade_script text\n    );\n    \ninsert into var_table(ver)\t\n    select max(ver) + 1\n        from dev.VER;\n        \nselect reclada.raise_exception('Can not apply this version!') \n    where not exists\n    (\n        select ver from var_table where ver = 2 --!!! write current version HERE !!!\n    );\n\nCREATE TEMP TABLE tmp\n(\n    id int GENERATED ALWAYS AS IDENTITY,\n    str text\n);\n--{ logging upgrade script\nCOPY tmp(str) FROM  'up.sql' delimiter E'';\nupdate var_table set upgrade_script = array_to_string(ARRAY((select str from tmp order by id asc)),chr(10),'');\ndelete from tmp;\n--} logging upgrade script\t\n\n--{ create downgrade script\nCOPY tmp(str) FROM  'down.sql' delimiter E'';\nupdate tmp set str = drp.v || scr.v\n    from tmp ttt\n    inner JOIN LATERAL\n    (\n        select substring(ttt.str from 4 for length(ttt.str)-4) as v\n    )  obj_file_name ON TRUE\n    inner JOIN LATERAL\n    (\n        select \tsplit_part(obj_file_name.v,'/',1) typ,\n                split_part(obj_file_name.v,'/',2) nam\n    )  obj ON TRUE\n        inner JOIN LATERAL\n    (\n        select case\n                when obj.typ = 'trigger'\n                    then\n                        (select 'DROP '|| obj.typ || ' IF EXISTS '|| obj.nam ||' ON ' || schm||'.'||tbl ||';' || E'\n'\n                        from (\n                            select n.nspname as schm,\n                                   c.relname as tbl\n                            from pg_trigger t\n                                join pg_class c on c.oid = t.tgrelid\n                                join pg_namespace n on n.oid = c.relnamespace\n                            where t.tgname = obj.nam) o)\n                else 'DROP '||obj.typ|| ' IF EXISTS '|| obj.nam || ' ;' || E'\n'\n                end as v\n    )  drp ON TRUE\n    inner JOIN LATERAL\n    (\n        select case \n                when obj.typ in ('function', 'procedure')\n                    then\n                        case \n                            when EXISTS\n                                (\n                                    SELECT 1 a\n                                        FROM pg_proc p \n                                        join pg_namespace n \n                                            on p.pronamespace = n.oid \n                                            where n.nspname||'.'||p.proname = obj.nam\n                                        LIMIT 1\n                                ) \n                                then (select pg_catalog.pg_get_functiondef(obj.nam::regproc::oid))||';'\n                            else ''\n                        end\n                when obj.typ = 'view'\n                    then\n                        case \n                            when EXISTS\n                                (\n                                    select 1 a \n                                        from pg_views v \n                                            where v.schemaname||'.'||v.viewname = obj.nam\n                                        LIMIT 1\n                                ) \n                                then E'CREATE OR REPLACE VIEW '\n                                        || obj.nam\n                                        || E'\nAS\n'\n                                        || (select pg_get_viewdef(obj.nam, true))\n                            else ''\n                        end\n                when obj.typ = 'trigger'\n                    then\n                        case\n                            when EXISTS\n                                (\n                                    select 1 a\n                                        from pg_trigger v\n                                            where v.tgname = obj.nam\n                                        LIMIT 1\n                                )\n                                then (select pg_catalog.pg_get_triggerdef(oid, true)\n                                        from pg_trigger\n                                        where tgname = obj.nam)||';'\n                            else ''\n                        end\n                else \n                    ttt.str\n            end as v\n    )  scr ON TRUE\n    where ttt.id = tmp.id\n        and tmp.str like '--{%/%}';\n    \nupdate var_table set downgrade_script = array_to_string(ARRAY((select str from tmp order by id asc)),chr(10),'');\t\n--} create downgrade script\ndrop table tmp;\n\n\n--{!!! write upgrare script HERE !!!\n\n--\tyou can use "i 'function/reclada_object.get_schema.sql'"\n--\tto run text script of functions\n \n/*\n  you can use "i 'function/reclada_object.get_schema.sql'"\n  to run text script of functions\n*/\n\nCREATE table public.num(id int, val text);\n\ni 'view/public.v_cat.sql'\ni 'view/public.v_green_cat.sql'\n\n\n\n SELECT reclada.raise_notice('Begin install component db...');\n                SELECT dev.begin_install_component('db','https://github.com/Unrealman17/db_ver','b757b6899fe3adcd13ea0584c1cc31647a25c909');\n                SELECT reclada_object.create_subclass('{\n    "class": "Cat",\n    "schema": {\n        "properties": {\n            "name": {\n                "type": "string"\n            },\n            "weight": {\n                "type": "number"\n            },\n            "color": {\n                "type": "string"\n            }\n        },\n        "required": [\n            "name",\n            "weight",\n            "color"\n        ],\n        "type": "object"\n    }\n}');\nSELECT reclada_object.create('{\n    "GUID": "DB6796DF-97D4-45AB-991B-10D1A610159B",\n    "class": "Cat",\n    "attributes": {\n        "name": "Igor",\n        "weight": 34,\n        "color": "black"\n    }\n}');\nSELECT reclada_object.create('{\n    "GUID": "7ED4BD4B-C114-451B-9F13-AE2BF6FEB5B2",\n    "class": "Cat",\n    "attributes": {\n        "name": "Richard",\n        "weight": 99,\n        "color": "green"\n    }\n}');\nSELECT reclada_object.create('{\n    "GUID": "C74E95F8-347C-4934-9E77-7E3CF6F9F4E3",\n    "class": "Cat",\n    "attributes": {\n        "name": "Vovan",\n        "weight": 78,\n        "color": "green"\n    }\n}');\n\n                SELECT dev.finish_install_component();\n\n--}!!! write upgrare script HERE !!!\n\ninsert into dev.ver(ver,upgrade_script,downgrade_script)\n    select ver, upgrade_script, downgrade_script\n        from var_table;\n\n--{ testing downgrade script\nSAVEPOINT sp;\n    select dev.downgrade_version();\nROLLBACK TO sp;\n--} testing downgrade script\n\nselect reclada.raise_notice('OK, current version: ' \n                            || (select ver from var_table)::text\n                          );\ndrop table var_table;\n\ncommit;	-- you can use "--{function/reclada_object.get_schema}"\n-- to add current version of object to downgrade script\n\nDROP view IF EXISTS public.v_green_cat ;\n\nDROP view IF EXISTS public.v_cat ;\n\n\ndrop table public.num;	2022-09-13 06:29:14.802029+00
 \.
 
 
@@ -1996,14 +1851,14 @@ COPY reclada.object (id, attributes, transaction_id, created_time, class, guid, 
 2	{"schema": {"type": "object", "required": ["subject", "type", "object"], "properties": {"type": {"type": "string", "enum ": ["params"]}, "object": {"type": "string", "pattern": "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}"}, "subject": {"type": "string", "pattern": "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}"}}}, "version": 1, "forClass": "Relationship", "parentList": []}	1	2021-09-22 14:53:04.158111+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	2d054574-8f7a-4a9a-a3b3-0400ad9d0489	\N	t
 3	{"schema": {"type": "object", "required": [], "properties": {}}, "version": 1, "forClass": "RecladaObject", "parentList": []}	1	2021-09-22 14:50:50.411942+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	ab9ab26c-8902-43dd-9f1a-743b14a89825	\N	t
 4	{"schema": {"type": "object", "$defs": {}, "required": ["name", "commitHash", "repository"], "properties": {"name": {"type": "string"}, "commitHash": {"type": "string"}, "repository": {"type": "string"}}}, "version": 1, "forClass": "Component", "parentList": ["ab9ab26c-8902-43dd-9f1a-743b14a89825"]}	1	2022-09-10 06:27:25.409281+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	d8585984-317b-4be8-bf50-99e561a17e03	\N	t
-5	{"schema": {"type": "object", "$defs": {}, "required": ["name", "weight", "color"], "properties": {"name": {"type": "string"}, "color": {"type": "string"}, "weight": {"type": "number"}}}, "version": 2, "forClass": "Cat", "parentList": ["ab9ab26c-8902-43dd-9f1a-743b14a89825"]}	2	2022-09-13 04:42:23.035755+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	9497e076-c588-41e8-b438-2598a1af5cd2	\N	t
-6	{"name": "Alex", "color": "white", "weight": 42}	2	2022-09-13 04:42:23.035755+00	9497e076-c588-41e8-b438-2598a1af5cd2	9a6a0461-071b-4f89-9f6c-22829b137437	2bd1fa94-3d6e-4939-ae8c-884880e14511	f
-8	{"schema": {"type": "object", "$defs": {}, "required": ["name", "weight", "color"], "properties": {"name": {"type": "string"}, "color": {"type": "string"}, "weight": {"type": "number"}}}, "version": 3, "forClass": "Cat", "parentList": ["ab9ab26c-8902-43dd-9f1a-743b14a89825"]}	4	2022-09-13 04:53:02.050983+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	d141a499-1449-4ab7-b0f8-877c91d29fb2	\N	t
-9	{"name": "Igor", "color": "black", "weight": 34}	4	2022-09-13 04:53:02.050983+00	d141a499-1449-4ab7-b0f8-877c91d29fb2	db6796df-97d4-45ab-991b-10d1a610159b	2bd1fa94-3d6e-4939-ae8c-884880e14511	t
-10	{"name": "Richard", "color": "green", "weight": 99}	4	2022-09-13 04:53:02.050983+00	d141a499-1449-4ab7-b0f8-877c91d29fb2	7ed4bd4b-c114-451b-9f13-ae2bf6feb5b2	2bd1fa94-3d6e-4939-ae8c-884880e14511	t
-11	{"name": "Vovan", "color": "green", "weight": 78}	4	2022-09-13 04:53:02.050983+00	d141a499-1449-4ab7-b0f8-877c91d29fb2	c74e95f8-347c-4934-9e77-7e3cf6f9f4e3	2bd1fa94-3d6e-4939-ae8c-884880e14511	t
-7	{"name": "db", "commitHash": "f8faed555c2a4c247072e06157c1e51229a8d4e1", "repository": "https://github.com/Unrealman17/db_ver"}	2	2022-09-13 04:42:23.035755+00	d8585984-317b-4be8-bf50-99e561a17e03	2bd1fa94-3d6e-4939-ae8c-884880e14511	\N	f
-12	{"name": "db", "commitHash": "edf8992ad4059f1c874f3c4b206a0af035a12aa6", "repository": "https://github.com/Unrealman17/db_ver"}	4	2022-09-13 04:53:02.050983+00	d8585984-317b-4be8-bf50-99e561a17e03	2bd1fa94-3d6e-4939-ae8c-884880e14511	\N	t
+5	{"schema": {"type": "object", "required": ["name", "weight", "color"], "properties": {"name": {"type": "string"}, "color": {"type": "string"}, "weight": {"type": "number"}}}, "forClass": "Cat"}	2	2022-09-13 06:15:39.552066+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	c891a9f0-8ea5-4d58-a14d-8e87daedca8d	\N	t
+6	{"name": "Alex", "color": "white", "weight": 42}	2	2022-09-13 06:15:39.552066+00	c891a9f0-8ea5-4d58-a14d-8e87daedca8d	9a6a0461-071b-4f89-9f6c-22829b137437	9b89fd13-d0b6-4824-b223-55f2bced818f	f
+8	{"schema": {"type": "object", "required": ["name", "weight", "color"], "properties": {"name": {"type": "string"}, "color": {"type": "string"}, "weight": {"type": "number"}}}, "forClass": "Cat"}	4	2022-09-13 06:29:14.802029+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	1e22ffc4-553a-487c-bc89-fa129122a944	\N	t
+9	{"name": "Igor", "color": "black", "weight": 34}	4	2022-09-13 06:29:14.802029+00	c891a9f0-8ea5-4d58-a14d-8e87daedca8d	db6796df-97d4-45ab-991b-10d1a610159b	9b89fd13-d0b6-4824-b223-55f2bced818f	t
+10	{"name": "Richard", "color": "green", "weight": 99}	4	2022-09-13 06:29:14.802029+00	c891a9f0-8ea5-4d58-a14d-8e87daedca8d	7ed4bd4b-c114-451b-9f13-ae2bf6feb5b2	9b89fd13-d0b6-4824-b223-55f2bced818f	t
+11	{"name": "Vovan", "color": "green", "weight": 78}	4	2022-09-13 06:29:14.802029+00	c891a9f0-8ea5-4d58-a14d-8e87daedca8d	c74e95f8-347c-4934-9e77-7e3cf6f9f4e3	9b89fd13-d0b6-4824-b223-55f2bced818f	t
+7	{"name": "db", "commitHash": "8d9ebc202cdc00e0603b1fa0c806cf1d06b111a4", "repository": "https://github.com/Unrealman17/db_ver"}	2	2022-09-13 06:15:39.552066+00	d8585984-317b-4be8-bf50-99e561a17e03	9b89fd13-d0b6-4824-b223-55f2bced818f	\N	f
+12	{"name": "db", "commitHash": "b757b6899fe3adcd13ea0584c1cc31647a25c909", "repository": "https://github.com/Unrealman17/db_ver"}	4	2022-09-13 06:29:14.802029+00	d8585984-317b-4be8-bf50-99e561a17e03	9b89fd13-d0b6-4824-b223-55f2bced818f	\N	t
 \.
 
 

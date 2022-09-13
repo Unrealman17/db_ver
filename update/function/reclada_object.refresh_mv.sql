@@ -8,10 +8,7 @@
  */
 
 DROP FUNCTION IF EXISTS reclada_object.refresh_mv;
-CREATE OR REPLACE FUNCTION reclada_object.refresh_mv
-(
-    class_name text
-)
+CREATE OR REPLACE FUNCTION reclada_object.refresh_mv()
 RETURNS void AS $$
 
 BEGIN
