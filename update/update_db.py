@@ -63,13 +63,13 @@ class DBHelper:
         checkout(self.branch_db)
 
         res = os.popen(
-            f'git log --pretty=format:"%H" --first-parent 5669f6a46aa58baea7fa8f0e2b4f775817e90aa9..').readlines()
+            f'git log --pretty=format:"%H" --first-parent d0e1b8aa58250c243ff6883886755dd811581e99..').readlines()
         for i in range(len(res)):
             res[i] = res[i].strip()
         res.reverse()
         if need_comment:
             res2 = os.popen(
-                'git log --pretty=format:"%B" --first-parent 5669f6a46aa58baea7fa8f0e2b4f775817e90aa9..').readlines()
+                'git log --pretty=format:"%B" --first-parent d0e1b8aa58250c243ff6883886755dd811581e99..').readlines()
             while('\n' in res2):
                 res2.remove('\n')
             for i in range(len(res2)):
