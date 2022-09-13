@@ -1,0 +1,9 @@
+{
+    "GUID": "5C3D698C-D78E-4096-B812-387FEF483FE2",
+    "class": "Cat",
+    "attributes": {
+        "name": "Irina",
+        "weight": 57,
+        "color": "green"
+    }
+}

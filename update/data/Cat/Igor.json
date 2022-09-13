@@ -1,9 +1,0 @@
-{
-    "GUID": "DB6796DF-97D4-45AB-991B-10D1A610159B",
-    "class": "Cat",
-    "attributes": {
-        "name": "Igor",
-        "weight": 34,
-        "color": "black"
-    }
-}
