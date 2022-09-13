@@ -28,7 +28,11 @@ BEGIN
         perform reclada.raise_exception('The reclada object class is not specified',_f_name);
     END IF;
 
-    SELECT reclada_object.get_schema(_class) 
+    SELECT data
+        FROM reclada.v_class v
+            WHERE v.for_class = _class
+                OR v.obj_id::text = _class
+            LIMIT 1 
         INTO _schema_obj;
 
     IF (_schema_obj IS NULL) THEN
@@ -38,7 +42,7 @@ BEGIN
     _class_guid := (_schema_obj->>'GUID')::uuid;
 
     SELECT  _schema_obj #>> '{attributes,forClass}', 
-            reclada.get_validation_schema(_class_guid)
+            _schema_obj #>  '{attributes,schema}'
         INTO    _class_name, 
                 _valid_schema;
 

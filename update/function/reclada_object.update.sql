@@ -122,11 +122,7 @@ BEGIN
                 on tt.id = v.id
 	            WHERE v.obj_id = _obj_id;
 
-    PERFORM reclada_object.refresh_mv(_class_name);
-
-    IF ( _class_name = 'jsonschema' AND jsonb_typeof(_attrs->'dupChecking') = 'array') THEN
-        PERFORM reclada_object.refresh_mv('uniFields');
-    END IF; 
+    PERFORM reclada_object.refresh_mv();
 
     SELECT reclada.jsonb_merge(v.data, v.default_value) AS data
         FROM reclada.v_active_object v

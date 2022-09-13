@@ -1,7 +1,6 @@
 {
-    "class": "RecladaObject",
-    "attributes": {
-        "newClass": "Cat",
+    "class": "Cat",
+    "schema": {
         "properties": {
             "name": {
                 "type": "string"
@@ -17,6 +16,7 @@
             "name",
             "weight",
             "color"
-        ]
+        ],
+        "type":"object"
     }
 }

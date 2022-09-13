@@ -5,7 +5,6 @@ objects_schemas AS (
     SELECT  obj.id,
             obj.GUID AS obj_id,
             obj.attributes->>'forClass' AS for_class,
-            (obj.attributes->>'version')::bigint AS version,
             obj.created_time,
             obj.attributes,
             obj.active
@@ -54,7 +53,6 @@ SELECT
         obj.id,
         obj.obj_id,
         obj.for_class,
-        obj.version,
         obj.created_time,
         obj.attributes,
         obj.active,

@@ -79,7 +79,7 @@ BEGIN
         perform reclada_object.create(_comp_obj);
     end if;
 
-    perform reclada_object.refresh_mv('All');
+    perform reclada_object.refresh_mv();
 
     return 'OK';
 

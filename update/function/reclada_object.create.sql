@@ -1,7 +1,7 @@
+drop function if exists reclada_object.create;
 CREATE OR REPLACE FUNCTION reclada_object.create
 (
-    data_jsonb jsonb, 
-    user_info jsonb default '{}'::jsonb
+    data_jsonb jsonb
 )
 RETURNS jsonb AS $$
 DECLARE
@@ -48,7 +48,6 @@ BEGIN
             select obj_id, for_class 
                 from reclada.v_class 
                     where _data->>'class' in (obj_id::text, for_class)
-                    ORDER BY version DESC 
                     LIMIT 1
                 into _class_uuid, _class_name;
 
@@ -181,7 +180,7 @@ BEGIN
             affected := array_append( affected, _obj_guid);
             inserted := array_append( inserted, _obj_guid);
 
-            PERFORM reclada_object.refresh_mv(_class_name);
+            PERFORM reclada_object.refresh_mv();
         END IF;
     END LOOP;
     

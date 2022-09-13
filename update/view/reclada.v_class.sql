@@ -4,7 +4,6 @@ AS
     SELECT  obj.id            ,
             obj.obj_id        ,
             cl.for_class      ,
-            cl.version        ,
             obj.created_time  ,
             obj.attrs         ,
             obj.active        ,

@@ -63,13 +63,13 @@ class DBHelper:
         checkout(self.branch_db)
 
         res = os.popen(
-            f'git log --pretty=format:"%H" --first-parent d0e1b8aa58250c243ff6883886755dd811581e99..').readlines()
+            f'git log --pretty=format:"%H" --first-parent 8d9ebc202cdc00e0603b1fa0c806cf1d06b111a4..').readlines()
         for i in range(len(res)):
             res[i] = res[i].strip()
         res.reverse()
         if need_comment:
             res2 = os.popen(
-                'git log --pretty=format:"%B" --first-parent d0e1b8aa58250c243ff6883886755dd811581e99..').readlines()
+                'git log --pretty=format:"%B" --first-parent 8d9ebc202cdc00e0603b1fa0c806cf1d06b111a4..').readlines()
             while('\n' in res2):
                 res2.remove('\n')
             for i in range(len(res2)):
@@ -276,9 +276,6 @@ class DBHelper:
     def clear_db_from_components(self):
 
         res = self.run_cmd_scalar('''DELETE FROM dev.component_object;''')
-        print(res)
-        res = self.run_cmd_scalar(
-            '''SELECT reclada_object.refresh_mv('All');''')
         print(res)
 
 
