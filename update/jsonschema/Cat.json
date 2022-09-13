@@ -10,6 +10,9 @@
             },
             "color": {
                 "type": "string"
+            },
+            "len": {
+                "type": "string"
             }
         },
         "required": [
