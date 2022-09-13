@@ -7,12 +7,8 @@ AS
             o.transaction_id,
             o.class_name, 
             o.obj_id,
-            o.data obj_data,
-            r.guid relationship_guid
+            o.data obj_data
         FROM reclada.v_component c
-        JOIN reclada.v_relationship r
-            ON r.parent_guid = c.guid
-                AND 'data of reclada-component' = r.type
         JOIN reclada.v_active_object o
-            ON o.obj_id = r.subject;
+            ON o.parent_guid = c.guid;
 --select * from reclada.v_component_object

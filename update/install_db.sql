@@ -255,7 +255,9 @@ BEGIN
             where status = 'need to check';
 
     update dev.component_object
-        set data = data || jsonb_build_object('transactionID',_tran_id)
+        set data = data 
+                    || jsonb_build_object('transactionID',_tran_id)
+                    || jsonb_build_object('parentGUID',(_comp_obj  ->>'GUID')::uuid)
             where status != 'delete';
 
     perform reclada_object.delete(data)
@@ -267,30 +269,11 @@ BEGIN
                         where status = 'create_subclass'
                         ORDER BY id)
     LOOP
-        perform reclada_object.create_relationship(
-                'data of reclada-component',
-                (_comp_obj ->>'GUID')::uuid ,
-                (cr.v ->>'GUID')::uuid ,
-                '{}'::jsonb            ,
-                (_comp_obj  ->>'GUID')::uuid,
-                _tran_id
-            )
-            from (select reclada_object.create_subclass(_data)#>'{0}' v) cr;
+        perform reclada_object.create_subclass(_data);
     END LOOP;
 
-    perform reclada_object.create_relationship(
-                'data of reclada-component',
-                (_comp_obj     ->>'GUID')::uuid ,
-                (el.value ->>'GUID')::uuid ,
-                '{}'::jsonb                ,
-                (_comp_obj     ->>'GUID')::uuid,
-                _tran_id
-            )
+    perform reclada_object.create(c.data) v
         from dev.component_object c
-        cross join lateral (
-            select reclada_object.create(c.data) v
-        ) cr
-        cross join lateral jsonb_array_elements(cr.v) el
             where c.status = 'create';
 
     perform reclada_object.update(data)
@@ -307,17 +290,6 @@ BEGIN
     else
         perform reclada_object.create(_comp_obj);
     end if;
-
-    perform reclada_object.create_relationship(
-                'data of reclada-component',
-                c.guid ,
-                (_comp_obj     ->>'GUID')::uuid ,
-                '{}'::jsonb                ,
-                c.guid ,
-                _tran_id
-            )
-        from reclada.v_component c
-            where _parent_component_name = c.name;
 
     perform reclada_object.refresh_mv('All');
 
@@ -1076,56 +1048,6 @@ BEGIN
     
 
     RETURN res;
-END;
-$$;
-
-
---
--- Name: create_relationship(text, uuid, uuid, jsonb, uuid, bigint); Type: FUNCTION; Schema: reclada_object; Owner: -
---
-
-CREATE FUNCTION reclada_object.create_relationship(_rel_type text, _obj_guid uuid, _subj_guid uuid, _extra_attrs jsonb DEFAULT '{}'::jsonb, _parent_guid uuid DEFAULT NULL::uuid, _tran_id bigint DEFAULT reclada.get_transaction_id()) RETURNS jsonb
-    LANGUAGE plpgsql
-    AS $$
-DECLARE
-    _rel_cnt    int;
-    _obj        jsonb;
-BEGIN
-
-    IF _obj_GUID IS NULL OR _subj_GUID IS NULL THEN
-        RAISE EXCEPTION 'Object GUID or Subject GUID IS NULL';
-    END IF;
-
-    SELECT count(*)
-    FROM reclada.v_active_object
-    WHERE class_name = 'Relationship'
-        AND (attrs->>'object')::uuid   = _obj_GUID
-        AND (attrs->>'subject')::uuid  = _subj_GUID
-        AND attrs->>'type'                      = _rel_type
-            INTO _rel_cnt;
-    IF (_rel_cnt = 0) THEN
-        _obj := format('{
-            "class": "Relationship",
-            "transactionID": %s,
-            "attributes": {
-                    "type": "%s",
-                    "object": "%s",
-                    "subject": "%s"
-                }
-            }',
-            _tran_id :: text,
-            _rel_type,
-            _obj_GUID,
-            _subj_GUID)::jsonb;
-        _obj := jsonb_set (_obj, '{attributes}', _obj->'attributes' || _extra_attrs);   
-        if _parent_guid is not null then
-            _obj := jsonb_set (_obj, '{parentGUID}', to_jsonb(_parent_guid) );   
-        end if;
-
-        RETURN  reclada_object.create( _obj);
-    ELSE
-        RETURN '{}'::jsonb;
-    END IF;
 END;
 $$;
 
@@ -1965,25 +1887,6 @@ CREATE VIEW reclada.v_component AS
 
 
 --
--- Name: v_relationship; Type: VIEW; Schema: reclada; Owner: -
---
-
-CREATE VIEW reclada.v_relationship AS
- SELECT obj.id,
-    obj.obj_id AS guid,
-    (obj.attrs ->> 'type'::text) AS type,
-    ((obj.attrs ->> 'object'::text))::uuid AS object,
-    ((obj.attrs ->> 'subject'::text))::uuid AS subject,
-    obj.parent_guid,
-    obj.created_time,
-    obj.attrs,
-    obj.active,
-    obj.data
-   FROM reclada.v_active_object obj
-  WHERE (obj.class_name = 'Relationship'::text);
-
-
---
 -- Name: v_component_object; Type: VIEW; Schema: reclada; Owner: -
 --
 
@@ -1994,11 +1897,9 @@ CREATE VIEW reclada.v_component_object AS
     o.transaction_id,
     o.class_name,
     o.obj_id,
-    o.data AS obj_data,
-    r.guid AS relationship_guid
-   FROM ((reclada.v_component c
-     JOIN reclada.v_relationship r ON (((r.parent_guid = c.guid) AND ('data of reclada-component'::text = r.type))))
-     JOIN reclada.v_active_object o ON ((o.obj_id = r.subject)));
+    o.data AS obj_data
+   FROM (reclada.v_component c
+     JOIN reclada.v_active_object o ON ((o.parent_guid = c.guid)));
 
 
 --
@@ -2051,11 +1952,9 @@ COPY reclada.object (id, attributes, transaction_id, created_time, class, guid, 
 2	{"schema": {"type": "object", "required": ["subject", "type", "object"], "properties": {"type": {"type": "string", "enum ": ["params"]}, "object": {"type": "string", "pattern": "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}"}, "subject": {"type": "string", "pattern": "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}"}}}, "version": 1, "forClass": "Relationship", "parentList": []}	1	2021-09-22 14:53:04.158111+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	2d054574-8f7a-4a9a-a3b3-0400ad9d0489	\N	t
 3	{"schema": {"type": "object", "required": [], "properties": {}}, "version": 1, "forClass": "RecladaObject", "parentList": []}	1	2021-09-22 14:50:50.411942+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	ab9ab26c-8902-43dd-9f1a-743b14a89825	\N	t
 4	{"schema": {"type": "object", "$defs": {}, "required": ["name", "commitHash", "repository"], "properties": {"name": {"type": "string"}, "commitHash": {"type": "string"}, "repository": {"type": "string"}}}, "version": 1, "forClass": "Component", "parentList": ["ab9ab26c-8902-43dd-9f1a-743b14a89825"]}	1	2022-09-10 06:27:25.409281+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	d8585984-317b-4be8-bf50-99e561a17e03	\N	t
-5	{"schema": {"type": "object", "$defs": {}, "required": ["name", "weight", "color"], "properties": {"name": {"type": "string"}, "color": {"type": "string"}, "weight": {"type": "number"}}}, "version": 1, "forClass": "Cat", "parentList": ["ab9ab26c-8902-43dd-9f1a-743b14a89825"]}	6	2022-09-12 12:59:18.501697+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	978f27e3-bfee-4c94-99a5-8af9404ec3f8	\N	t
-6	{"type": "data of reclada-component", "object": "2752ad51-49b3-4a7c-9bdc-757c4a3f0f9a", "subject": "978f27e3-bfee-4c94-99a5-8af9404ec3f8"}	6	2022-09-12 12:59:18.501697+00	2d054574-8f7a-4a9a-a3b3-0400ad9d0489	38460db1-0c3f-4ab0-9e7f-c0999f2f6e3e	2752ad51-49b3-4a7c-9bdc-757c4a3f0f9a	t
-7	{"name": "Alex", "color": "white", "weight": 42}	6	2022-09-12 12:59:18.501697+00	978f27e3-bfee-4c94-99a5-8af9404ec3f8	9a6a0461-071b-4f89-9f6c-22829b137437	\N	t
-8	{"type": "data of reclada-component", "object": "2752ad51-49b3-4a7c-9bdc-757c4a3f0f9a", "subject": "9a6a0461-071b-4f89-9f6c-22829b137437"}	6	2022-09-12 12:59:18.501697+00	2d054574-8f7a-4a9a-a3b3-0400ad9d0489	4f8ef505-c445-4f3a-9285-177dfe4f35d1	2752ad51-49b3-4a7c-9bdc-757c4a3f0f9a	t
-9	{"name": "db", "commitHash": "6dbd97040baf8768eb908a7cc200cd6ab1bad45b", "repository": "https://github.com/Unrealman17/db_ver"}	6	2022-09-12 12:59:18.501697+00	d8585984-317b-4be8-bf50-99e561a17e03	2752ad51-49b3-4a7c-9bdc-757c4a3f0f9a	\N	t
+5	{"schema": {"type": "object", "$defs": {}, "required": ["name", "weight", "color"], "properties": {"name": {"type": "string"}, "color": {"type": "string"}, "weight": {"type": "number"}}}, "version": 2, "forClass": "Cat", "parentList": ["ab9ab26c-8902-43dd-9f1a-743b14a89825"]}	2	2022-09-13 04:42:23.035755+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	9497e076-c588-41e8-b438-2598a1af5cd2	\N	t
+6	{"name": "Alex", "color": "white", "weight": 42}	2	2022-09-13 04:42:23.035755+00	9497e076-c588-41e8-b438-2598a1af5cd2	9a6a0461-071b-4f89-9f6c-22829b137437	2bd1fa94-3d6e-4939-ae8c-884880e14511	t
+7	{"name": "db", "commitHash": "f8faed555c2a4c247072e06157c1e51229a8d4e1", "repository": "https://github.com/Unrealman17/db_ver"}	2	2022-09-13 04:42:23.035755+00	d8585984-317b-4be8-bf50-99e561a17e03	2bd1fa94-3d6e-4939-ae8c-884880e14511	\N	t
 \.
 
 
@@ -2063,7 +1962,7 @@ COPY reclada.object (id, attributes, transaction_id, created_time, class, guid, 
 -- Name: component_object_id_seq; Type: SEQUENCE SET; Schema: dev; Owner: -
 --
 
-SELECT pg_catalog.setval('dev.component_object_id_seq', 3, true);
+SELECT pg_catalog.setval('dev.component_object_id_seq', 5, true);
 
 
 --
@@ -2084,21 +1983,21 @@ SELECT pg_catalog.setval('dev.t_dbg_id_seq', 1, true);
 -- Name: ver_id_seq; Type: SEQUENCE SET; Schema: dev; Owner: -
 --
 
-SELECT pg_catalog.setval('dev.ver_id_seq', 2, true);
+SELECT pg_catalog.setval('dev.ver_id_seq', 1, true);
 
 
 --
 -- Name: object_id_seq; Type: SEQUENCE SET; Schema: reclada; Owner: -
 --
 
-SELECT pg_catalog.setval('reclada.object_id_seq', 14, true);
+SELECT pg_catalog.setval('reclada.object_id_seq', 7, true);
 
 
 --
 -- Name: transaction_id; Type: SEQUENCE SET; Schema: reclada; Owner: -
 --
 
-SELECT pg_catalog.setval('reclada.transaction_id', 6, true);
+SELECT pg_catalog.setval('reclada.transaction_id', 2, true);
 
 
 --
