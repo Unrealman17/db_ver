@@ -3,7 +3,7 @@
     "class": "Cat",
     "attributes": {
         "name": "Vovan",
-        "weight": 78,
+        "weight": 81,
         "color": "green"
     }
 }
