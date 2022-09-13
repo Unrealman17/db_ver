@@ -17,7 +17,7 @@ BEGIN
     select jsonb_build_object(
                                 'GUID'          , guid::text,
                                 'class'         , 'Component',
-                                'transactionID' , _tran_id,
+                                'transactionID' , _tran_id  ,
                                 'attributes'    , jsonb_build_object(
                                     'name'        , name,
                                     'repository'  , repository,

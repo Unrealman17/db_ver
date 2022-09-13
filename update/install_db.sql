@@ -1092,6 +1092,7 @@ BEGIN
         'class'         , 'jsonschema'   ,
         'GUID'          , _obj_guid::text,
         'transactionID' , _tran_id       ,
+        'parentGUID'    , _data->>'parentGUID',
         'attributes'    , jsonb_build_object(
                 'forClass'  , _new_class ,
                 'schema'    , _schema
@@ -1804,12 +1805,11 @@ COPY dev.ver (id, ver, ver_str, upgrade_script, downgrade_script, run_at) FROM s
 
 COPY reclada.object (id, attributes, transaction_id, created_time, class, guid, parent_guid, active) FROM stdin;
 1	{"schema": {"type": "object", "required": ["forClass", "schema"], "properties": {"schema": {"type": "object"}, "forClass": {"type": "string"}, "parentList": {"type": "array", "items": {"type": "string"}}}}, "version": 1, "forClass": "jsonschema", "parentList": []}	1	2021-09-22 14:50:50.411942+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	5362d59b-82a1-4c7c-8ec3-07c256009fb0	\N	t
-2	{"schema": {"type": "object", "required": ["subject", "type", "object"], "properties": {"type": {"type": "string", "enum ": ["params"]}, "object": {"type": "string", "pattern": "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}"}, "subject": {"type": "string", "pattern": "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}"}}}, "version": 1, "forClass": "Relationship", "parentList": []}	1	2021-09-22 14:53:04.158111+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	2d054574-8f7a-4a9a-a3b3-0400ad9d0489	\N	t
-3	{"schema": {"type": "object", "required": [], "properties": {}}, "version": 1, "forClass": "RecladaObject", "parentList": []}	1	2021-09-22 14:50:50.411942+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	ab9ab26c-8902-43dd-9f1a-743b14a89825	\N	t
-4	{"schema": {"type": "object", "$defs": {}, "required": ["name", "commitHash", "repository"], "properties": {"name": {"type": "string"}, "commitHash": {"type": "string"}, "repository": {"type": "string"}}}, "version": 1, "forClass": "Component", "parentList": ["ab9ab26c-8902-43dd-9f1a-743b14a89825"]}	1	2022-09-10 06:27:25.409281+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	d8585984-317b-4be8-bf50-99e561a17e03	\N	t
-5	{"schema": {"type": "object", "required": ["name", "weight", "color"], "properties": {"name": {"type": "string"}, "color": {"type": "string"}, "weight": {"type": "number"}}}, "forClass": "Cat"}	2	2022-09-13 06:15:39.552066+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	c891a9f0-8ea5-4d58-a14d-8e87daedca8d	\N	t
-6	{"name": "Alex", "color": "white", "weight": 42}	2	2022-09-13 06:15:39.552066+00	c891a9f0-8ea5-4d58-a14d-8e87daedca8d	9a6a0461-071b-4f89-9f6c-22829b137437	9b89fd13-d0b6-4824-b223-55f2bced818f	t
-7	{"name": "db", "commitHash": "8d9ebc202cdc00e0603b1fa0c806cf1d06b111a4", "repository": "https://github.com/Unrealman17/db_ver"}	2	2022-09-13 06:15:39.552066+00	d8585984-317b-4be8-bf50-99e561a17e03	9b89fd13-d0b6-4824-b223-55f2bced818f	\N	t
+2	{"schema": {"type": "object", "required": [], "properties": {}}, "version": 1, "forClass": "RecladaObject", "parentList": []}	1	2021-09-22 14:50:50.411942+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	ab9ab26c-8902-43dd-9f1a-743b14a89825	\N	t
+3	{"schema": {"type": "object", "$defs": {}, "required": ["name", "commitHash", "repository"], "properties": {"name": {"type": "string"}, "commitHash": {"type": "string"}, "repository": {"type": "string"}}}, "version": 1, "forClass": "Component", "parentList": ["ab9ab26c-8902-43dd-9f1a-743b14a89825"]}	1	2022-09-10 06:27:25.409281+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	d8585984-317b-4be8-bf50-99e561a17e03	\N	t
+4	{"schema": {"type": "object", "required": ["name", "weight", "color"], "properties": {"name": {"type": "string"}, "color": {"type": "string"}, "weight": {"type": "number"}}}, "forClass": "Cat"}	2	2022-09-13 09:46:58.440864+00	5362d59b-82a1-4c7c-8ec3-07c256009fb0	c04a31c7-f8e4-4aaa-b8fe-c92bdc7e4b47	1e59e2ae-ab11-44e9-b54b-a769964c803f	t
+5	{"name": "Alex", "color": "white", "weight": 42}	2	2022-09-13 09:46:58.440864+00	c04a31c7-f8e4-4aaa-b8fe-c92bdc7e4b47	9a6a0461-071b-4f89-9f6c-22829b137437	1e59e2ae-ab11-44e9-b54b-a769964c803f	t
+6	{"name": "db", "commitHash": "eb3c3687db036a59bb281ff2adc77ca5b9899114", "repository": "https://github.com/Unrealman17/db_ver"}	2	2022-09-13 09:46:58.440864+00	d8585984-317b-4be8-bf50-99e561a17e03	1e59e2ae-ab11-44e9-b54b-a769964c803f	\N	t
 \.
 
 
@@ -1845,7 +1845,7 @@ SELECT pg_catalog.setval('dev.ver_id_seq', 1, true);
 -- Name: object_id_seq; Type: SEQUENCE SET; Schema: reclada; Owner: -
 --
 
-SELECT pg_catalog.setval('reclada.object_id_seq', 7, true);
+SELECT pg_catalog.setval('reclada.object_id_seq', 6, true);
 
 
 --
