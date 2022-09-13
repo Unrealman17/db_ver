@@ -159,8 +159,7 @@ BEGIN
         AND id = ANY(list_id)
         INTO _list_class_name;
     
-    PERFORM reclada_object.refresh_mv(cn)
-        FROM unnest( _list_class_name ) AS cn;
+    PERFORM reclada_object.refresh_mv();
 
     RETURN data;
 END;
