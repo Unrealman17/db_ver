@@ -5,8 +5,5 @@
     "quick_install" : true,
     "version": "latest",
     "downgrade_test": true,
-    "components":[
-        "../../reclada-runtime",
-        "../../SciNLP"
-    ]
+    "components":[]
 }
